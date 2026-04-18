@@ -22,7 +22,6 @@ import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class ProjectUsageService {
@@ -315,50 +314,5 @@ public class ProjectUsageService {
             return ClockifyJson.decimal(totals.get("totalAmount"));
         }
         return BigDecimal.ZERO;
-    }
-
-    private Optional<JsonElement> findFirstElement(JsonElement root, String... keys) {
-        if (root == null || root.isJsonNull()) {
-            return Optional.empty();
-        }
-        if (root.isJsonObject()) {
-            JsonObject object = root.getAsJsonObject();
-            for (String key : keys) {
-                if (object.has(key)) {
-                    JsonElement value = object.get(key);
-                    if (value != null && !value.isJsonNull()) {
-                        return Optional.of(value);
-                    }
-                }
-            }
-            for (String key : object.keySet()) {
-                Optional<JsonElement> nested = findFirstElement(object.get(key), keys);
-                if (nested.isPresent()) {
-                    return nested;
-                }
-            }
-            return Optional.empty();
-        }
-        if (root.isJsonArray()) {
-            for (JsonElement element : root.getAsJsonArray()) {
-                Optional<JsonElement> nested = findFirstElement(element, keys);
-                if (nested.isPresent()) {
-                    return nested;
-                }
-            }
-        }
-        return Optional.empty();
-    }
-
-    private Optional<JsonElement> findDirectElement(JsonObject object, String... keys) {
-        if (object == null) {
-            return Optional.empty();
-        }
-        for (String key : keys) {
-            if (object.has(key) && !object.get(key).isJsonNull()) {
-                return Optional.of(object.get(key));
-            }
-        }
-        return Optional.empty();
     }
 }

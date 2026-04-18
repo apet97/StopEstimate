@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -434,6 +435,70 @@ class EstimateGuardServiceTest {
         assertThat(captor.getValue().getEventType()).isEqualTo(GuardEventType.UNLOCKED.name());
         assertThat(captor.getValue().getGuardReason()).isEqualTo(GuardReason.BELOW_CAPS.name());
         assertThat(captor.getValue().getPayloadFingerprint()).isEqualTo("scheduler");
+    }
+
+    @Test
+    void upsertJobRecoversFromConcurrentInsertRace() {
+        // V1_0_5 added uk_cutoff_jobs_workspace_time_entry, so parallel webhooks for the same
+        // timer race to insert. Guard must catch DIVE, re-read the winning row, and overwrite
+        // when its cutoffAt differs — without leaking the exception up to the webhook handler.
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectStateWithTimeCap(3_600_000L));
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        Instant entryStart = fixedClock.instant().minusSeconds(60);
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", entryStart, true)));
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        PendingCutoffJob winner = PendingCutoffJob.create("ws-1", "project-1", "user-1", "te-1",
+                fixedClock.instant().plusSeconds(1));
+        when(cutoffJobStore.findByTimeEntryId("ws-1", "te-1"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winner));
+        Mockito.doThrow(new DataIntegrityViolationException("uk_cutoff_jobs_workspace_time_entry"))
+                .doNothing()
+                .when(cutoffJobStore).save(any(PendingCutoffJob.class));
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
+
+        verify(cutoffJobStore).deleteByJobId(winner.jobId());
+        verify(cutoffJobStore, times(2)).save(any(PendingCutoffJob.class));
+    }
+
+    @Test
+    void upsertJobConcurrentWinnerWithSameCutoffAtReturnsQuietly() {
+        // When the racing winner has the identical cutoffAt, we should neither delete nor re-save.
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectStateWithTimeCap(3_600_000L));
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        Instant entryStart = fixedClock.instant().minusSeconds(60);
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", entryStart, true)));
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        // Expected cutoffAt: 60s already elapsed against a 3_600_000ms cap → cutoffAt = entry.start + 3600s.
+        Instant expectedCutoffAt = entryStart.plusSeconds(3_600);
+        PendingCutoffJob winner = PendingCutoffJob.create("ws-1", "project-1", "user-1", "te-1", expectedCutoffAt);
+        when(cutoffJobStore.findByTimeEntryId("ws-1", "te-1"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winner));
+        Mockito.doThrow(new DataIntegrityViolationException("uk_cutoff_jobs_workspace_time_entry"))
+                .when(cutoffJobStore).save(any(PendingCutoffJob.class));
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
+
+        verify(cutoffJobStore, never()).deleteByJobId(anyString());
+        verify(cutoffJobStore, times(1)).save(any(PendingCutoffJob.class));
     }
 
     @Test

@@ -110,7 +110,8 @@ Two independent paths notice timer activity. Either one triggers the same guard 
 - **Protected APIs** — every `/api/*` call requires `X-Addon-Token`. `auth_token` is stripped from the iframe URL before any backend call.
 - **Local assets only** — the sidebar serves all CSS/JS from this origin; no third-party CDN dependencies.
 - **URL allow-list** — `ClockifyUrlNormalizer` enforces HTTPS and `*.clockify.me` host; a forged JWT cannot redirect outbound calls.
-- **Deduplication** — inbound webhooks are short-circuited on replay by `(event_id, signature_hash)` uniqueness in `webhook_events`.
+- **Deduplication** — inbound webhooks are short-circuited on replay by `(event_id, signature_hash)` uniqueness in `webhook_events`. Rows are purged hourly past a 24h retention window by a ShedLock-guarded scheduler.
+- **Bounded outbound calls** — every Clockify call is subject to 5s connect / 10s read timeouts and one `Retry-After`-honoring retry on HTTP 429, so a stalled or rate-limiting Clockify cannot pin webhook threads.
 
 ---
 

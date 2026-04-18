@@ -18,6 +18,7 @@ import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.store.CutoffJobStore;
 import com.devodox.stopatestimate.util.ClockifyJson;
 import com.google.gson.JsonObject;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -228,7 +229,6 @@ public class EstimateGuardService {
             recordEvent(job.workspaceId(), job.projectId(), GuardEventType.TIMER_STOPPED, reason, source + ":due-job", null);
             projectLockService.lockProject(installation, projectState, reason);
             recordEvent(job.workspaceId(), job.projectId(), GuardEventType.LOCKED, reason, source + ":due-job", null);
-            reconcileProject(job.workspaceId(), job.projectId(), source + ":due-job", null);
         }
     }
 
@@ -499,7 +499,19 @@ public class EstimateGuardService {
             return;
         }
         existing.ifPresent(job -> cutoffJobStore.deleteByJobId(job.jobId()));
-        cutoffJobStore.save(PendingCutoffJob.create(workspaceId, projectId, userId, timeEntryId, cutoffAt));
+        try {
+            cutoffJobStore.save(PendingCutoffJob.create(workspaceId, projectId, userId, timeEntryId, cutoffAt));
+        } catch (DataIntegrityViolationException race) {
+            // A parallel webhook delivery just inserted the (workspace_id, time_entry_id) row
+            // (uk_cutoff_jobs_workspace_time_entry in V1_0_5). Re-read and overwrite so our
+            // cutoffAt wins — subsequent ticks will converge to the same value anyway.
+            PendingCutoffJob winner = cutoffJobStore.findByTimeEntryId(workspaceId, timeEntryId).orElse(null);
+            if (winner == null || winner.cutoffAt().equals(cutoffAt)) {
+                return;
+            }
+            cutoffJobStore.deleteByJobId(winner.jobId());
+            cutoffJobStore.save(PendingCutoffJob.create(workspaceId, projectId, userId, timeEntryId, cutoffAt));
+        }
     }
 
     private void stopRunningEntries(InstallationRecord installation, List<RunningTimeEntry> runningEntries, Instant cutoffAt) {

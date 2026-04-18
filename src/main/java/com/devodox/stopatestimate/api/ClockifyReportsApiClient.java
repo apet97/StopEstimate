@@ -5,6 +5,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -18,9 +19,17 @@ public class ClockifyReportsApiClient {
 
     private final RestClient.Builder restClientBuilder;
     private final Gson gson = new Gson();
+    private RestClient restClient;
 
     public ClockifyReportsApiClient(RestClient.Builder restClientBuilder) {
         this.restClientBuilder = restClientBuilder;
+    }
+
+    @PostConstruct
+    void init() {
+        // Single RestClient per bean: the underlying HttpClient pools connections across calls.
+        // Rebuilding per request recreated sockets on every report fetch and leaked ephemeral ports.
+        this.restClient = restClientBuilder.build();
     }
 
     public JsonObject generateSummaryReport(InstallationRecord installation, JsonObject filter) {
@@ -46,7 +55,7 @@ public class ClockifyReportsApiClient {
             log.trace("reports POST path={} bytes={}", path, requestBodyStr.length());
         }
         try {
-            String responseBody = restClientBuilder.build()
+            String responseBody = restClient
                     .post()
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)

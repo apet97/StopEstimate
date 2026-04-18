@@ -269,6 +269,10 @@ public class ClockifyBackendApiClient {
     }
 
     private String exchange(String method, String url, String addonToken, String body) {
+        return exchangeOnce(method, url, addonToken, body, true);
+    }
+
+    private String exchangeOnce(String method, String url, String addonToken, String body, boolean allowRetry) {
         try {
             return switch (method) {
                 case "GET" -> restClient.get()
@@ -300,9 +304,43 @@ public class ClockifyBackendApiClient {
                 default -> throw new IllegalArgumentException("Unsupported method: " + method);
             };
         } catch (RestClientResponseException e) {
+            if (allowRetry && e.getStatusCode().value() == 429) {
+                // Single Retry-After-honoring retry. Cap the sleep so a hostile Retry-After
+                // can't park the thread for minutes; fail through to classify() if we still
+                // get rate-limited on the retry.
+                sleepQuietly(parseRetryAfterMillis(e));
+                return exchangeOnce(method, url, addonToken, body, false);
+            }
             throw classify(e);
         } catch (RuntimeException e) {
             throw new ClockifyApiException("Clockify backend call failed", e);
+        }
+    }
+
+    private static long parseRetryAfterMillis(RestClientResponseException e) {
+        org.springframework.http.HttpHeaders headers = e.getResponseHeaders();
+        String retryAfter = headers == null ? null : headers.getFirst("Retry-After");
+        long fallbackMs = 1_000L;
+        long capMs = 10_000L;
+        if (retryAfter == null || retryAfter.isBlank()) {
+            return fallbackMs;
+        }
+        try {
+            long seconds = Long.parseLong(retryAfter.trim());
+            return Math.min(capMs, Math.max(0L, seconds) * 1_000L);
+        } catch (NumberFormatException ignored) {
+            return fallbackMs;
+        }
+    }
+
+    private static void sleepQuietly(long millis) {
+        if (millis <= 0L) {
+            return;
+        }
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 

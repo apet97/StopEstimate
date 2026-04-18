@@ -4,6 +4,19 @@ Generated 2026-04-17 from 10 parallel Opus subagents (security, services, contro
 
 ---
 
+## 2026-04-19 quality / efficiency / stability pass — resolved
+
+- [x] HTTP connect/read timeouts (5s / 10s) applied to every Clockify call via a `RestClientCustomizer` in `ClockifyInfrastructureConfiguration`. Previously both clients built `RestClient` with no timeouts and a stalled Clockify socket could hang a webhook thread indefinitely.
+- [x] `ClockifyReportsApiClient` now caches the built `RestClient` in `@PostConstruct` instead of rebuilding per call (matches the backend client's pattern, stops ephemeral-port churn).
+- [x] `ClockifyBackendApiClient.exchange` now does a single `Retry-After`-honoring retry on HTTP 429 (capped at 10s sleep) before falling through to `classify()`.
+- [x] `EstimateGuardService.upsertJob` now catches `DataIntegrityViolationException` from the `uk_cutoff_jobs_workspace_time_entry` unique constraint and either returns (identical cutoffAt already written) or re-reads and overwrites. Parallel webhook deliveries for the same timer no longer leak a 500 up to Clockify.
+- [x] Removed the redundant recursive `reconcileProject(...)` call at the tail of `processDueJobs` — the enclosing code has already stopped the timer and locked the project, so the recursive call was paying for 3 extra Clockify API calls just to observe the terminal state.
+- [x] `webhook_events` retention: new hourly `@Scheduled` + ShedLock-guarded `cleanupWebhookEvents` in `CutoffJobScheduler` calls `deleteAllOlderThan(now-24h)`. The repository method existed but was never invoked, so the table grew unbounded.
+- [x] Deleted dead `ProjectUsageService.findFirstElement` / `findDirectElement` (never called; callers use `ClockifyJson.findFirstString`).
+- [x] Added `EstimateGuardServiceTest.upsertJobRecoversFromConcurrentInsertRace` and `upsertJobConcurrentWinnerWithSameCutoffAtReturnsQuietly` covering both DIVE-retry branches.
+
+---
+
 ## 2026-04-18 gap-closing pass — resolved
 
 The following follow-up items (flagged post-initial-audit, some surfacing after runtime validation)
@@ -85,7 +98,7 @@ were closed in the 2026-04-18 commit:
 - [ ] **[HIGH]** `ClockifyLifecycleService.handleInstalled` not idempotent — re-INSTALLED clobbers existing webhook tokens, status, settings (`createdAt` reset). Lookup existing record and merge.
 
 ### Performance (high impact)
-- [ ] **[HIGH]** `ClockifyBackendApiClient.java:244` + `ClockifyReportsApiClient.java:47` — `restClientBuilder.build()` per request. No connection pooling, no timeouts, no retry/backoff. Cron storms Clockify with fresh sockets. Build one `RestClient` per client via `@PostConstruct` with pooled `HttpComponentsClientHttpRequestFactory`, explicit connect/read timeouts, Spring-Retry interceptor for 5xx/429.
+- [x] **[HIGH]** `ClockifyBackendApiClient.java:244` + `ClockifyReportsApiClient.java:47` — `restClientBuilder.build()` per request. No connection pooling, no timeouts, no retry/backoff. — **Closed 2026-04-19**: single `RestClient` per client via `@PostConstruct`, 5s/10s timeouts via `RestClientCustomizer`, Retry-After-honoring retry on 429. 5xx retry + connection pool tuning still open as a follow-up.
 - [ ] **[HIGH]** `processDueJobs` `findAllJobs()` then in-memory filter — `idx_cutoff_jobs_cutoff_at` unused. Add `findAllByCutoffAtLessThanEqual(Instant now)` with `LIMIT` + ORDER BY.
 - [ ] **[HIGH]** `knownProjectIds()` paginates whole workspace projects on every reconcile (every 60 s × workspaces). Add Caffeine cache (TTL 30–60 s) keyed by `workspaceId`.
 
@@ -165,7 +178,7 @@ were closed in the 2026-04-18 commit:
 - [ ] **[LOW]** Drop unused `enforcementMode` field on `InstallationRecord` (always `"ENFORCE"`); centralize setting parsing in a `SettingsParser`.
 - [ ] **[LOW]** Mark service classes `final`; hoist `Gson` to `private static final`.
 - [ ] **[LOW]** `ClockifyUrlNormalizer.normalize` — `appendV1` parameter is dead; remove.
-- [ ] **[LOW]** Delete `ProjectUsageService.findFirstElement` / `findDirectElement` — unused.
+- [x] **[LOW]** Delete `ProjectUsageService.findFirstElement` / `findDirectElement` — unused. **Closed 2026-04-19.**
 - [ ] **[LOW]** Inject `Clock` into `TokenVerificationService` and `ClockifyWebhookService`.
 
 ### Frontend polish
