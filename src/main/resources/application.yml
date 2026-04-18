@@ -1,0 +1,76 @@
+spring:
+  application:
+    name: stop-at-estimate
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/stop_at_estimate}
+    username: ${SPRING_DATASOURCE_USERNAME:stop_at_estimate}
+    password: ${SPRING_DATASOURCE_PASSWORD:stop_at_estimate}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-exception: false
+    include-binding-errors: never
+  tomcat:
+    accesslog:
+      enabled: ${TOMCAT_ACCESSLOG_ENABLED:false}
+      directory: /tmp
+      prefix: stopatestimate-access
+      suffix: .log
+      pattern: "%t %a %r %s %D"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    web:
+      client:
+        # Every Clockify call embeds workspace/project/user IDs in the URI path and Micrometer
+        # warns "Reached the maximum number of URI tags" once it hits the default cap (100).
+        # Raising the cap silences the warning; a follow-up should switch to URI templates so the
+        # tags collapse to low cardinality and this cap becomes irrelevant.
+        max-uri-tags: 500
+
+addon:
+  key: ${ADDON_KEY:stop-at-estimate}
+  name: ${ADDON_NAME:Stop @ Estimate}
+  description: ${ADDON_DESCRIPTION:Stops timers and locks projects when time or budget estimates are reached.}
+  base-url: ${ADDON_BASE_URL:https://example.ngrok-free.app}
+  sidebar-label: ${ADDON_SIDEBAR_LABEL:Stop @ Estimate}
+  default-reset-cadence: ${ADDON_DEFAULT_RESET_CADENCE:NONE}
+  # No defaults — operators MUST set these env vars. The app fails fast at startup
+  # if they are missing or set to any known checked-in example value.
+  encryption-key-hex: ${APP_ENCRYPTION_KEY_HEX:}
+  encryption-salt-hex: ${APP_ENCRYPTION_SALT_HEX:}
+
+clockify:
+  cutoff:
+    interval-ms: ${CLOCKIFY_CUTOFF_INTERVAL_MS:60000}
+
+logging:
+  level:
+    root: INFO
+    com.devodox.stopatestimate: INFO

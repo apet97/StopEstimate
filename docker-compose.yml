@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: stop_at_estimate
+      POSTGRES_USER: stop_at_estimate
+      POSTGRES_PASSWORD: stop_at_estimate
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stop_at_estimate -d stop_at_estimate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      ADDON_KEY: stop-at-estimate
+      ADDON_NAME: "Stop @ Estimate"
+      ADDON_BASE_URL: ${ADDON_BASE_URL:-https://example.ngrok-free.app}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/stop_at_estimate
+      SPRING_DATASOURCE_USERNAME: stop_at_estimate
+      SPRING_DATASOURCE_PASSWORD: stop_at_estimate
+      # Both must be supplied from the shell env; the app rejects checked-in example values.
+      APP_ENCRYPTION_KEY_HEX: ${APP_ENCRYPTION_KEY_HEX:?set APP_ENCRYPTION_KEY_HEX via `openssl rand -hex 32`}
+      APP_ENCRYPTION_SALT_HEX: ${APP_ENCRYPTION_SALT_HEX:?set APP_ENCRYPTION_SALT_HEX via `openssl rand -hex 16`}
+      CLOCKIFY_CUTOFF_INTERVAL_MS: "60000"
+    ports:
+      - "127.0.0.1:8080:8080"
+    profiles:
+      - app
+
+volumes:
+  pgdata:

@@ -1,0 +1,69 @@
+package com.devodox.stopatestimate.service;
+
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
+import java.util.regex.Pattern;
+
+public final class ClockifyUrlNormalizer {
+
+    /**
+     * Any subdomain of {@code clockify.me} is accepted — covers {@code api.clockify.me},
+     * {@code api.eu.clockify.me}, {@code global.api.clockify.me}, {@code reports.clockify.me},
+     * etc. A JWT whose {@code backendUrl} resolves to an attacker-owned host would otherwise
+     * receive the installation token via {@code X-Addon-Token} on the next outbound call.
+     */
+    private static final Pattern ALLOWED_HOST = Pattern.compile("^(?:[a-z0-9-]+\\.)*clockify\\.me$");
+
+    private ClockifyUrlNormalizer() {
+    }
+
+    public static String normalizeBackendApiUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            throw new InvalidAddonTokenException("backendUrl is missing");
+        }
+
+        URI uri;
+        try {
+            uri = new URI(rawUrl.trim());
+        } catch (URISyntaxException e) {
+            throw new InvalidAddonTokenException("Invalid Clockify backend URL", e);
+        }
+
+        String scheme = uri.getScheme();
+        if (scheme == null || !"https".equalsIgnoreCase(scheme)) {
+            throw new InvalidAddonTokenException("Clockify backend URL must use https");
+        }
+
+        String host = uri.getHost();
+        if (host == null || host.isBlank()) {
+            throw new InvalidAddonTokenException("Clockify backend URL has no host");
+        }
+        String hostLower = host.toLowerCase(Locale.ROOT);
+        if (!ALLOWED_HOST.matcher(hostLower).matches()) {
+            throw new InvalidAddonTokenException("Clockify backend URL host is not permitted");
+        }
+
+        String path = uri.getPath() == null ? "" : uri.getPath().replaceAll("/+$", "");
+        if (path.isBlank() || "/".equals(path)) {
+            path = "/api";
+        } else if (path.matches(".*/api/v\\d+$")) {
+            path = path.replaceAll("/api/v\\d+$", "/api");
+        } else if (!path.endsWith("/api")) {
+            path = path + "/api";
+        }
+
+        try {
+            return new URI(
+                    "https",
+                    uri.getUserInfo(),
+                    hostLower,
+                    uri.getPort(),
+                    path,
+                    uri.getQuery(),
+                    uri.getFragment()).toString();
+        } catch (URISyntaxException e) {
+            throw new InvalidAddonTokenException("Failed to rebuild Clockify backend URL", e);
+        }
+    }
+}

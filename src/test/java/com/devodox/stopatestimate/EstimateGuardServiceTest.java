@@ -1,0 +1,340 @@
+package com.devodox.stopatestimate;
+
+import com.devodox.stopatestimate.api.ClockifyBackendApiClient;
+import com.devodox.stopatestimate.model.AddonStatus;
+import com.devodox.stopatestimate.model.GuardEventType;
+import com.devodox.stopatestimate.model.GuardReason;
+import com.devodox.stopatestimate.model.InstallationRecord;
+import com.devodox.stopatestimate.model.PendingCutoffJob;
+import com.devodox.stopatestimate.model.ProjectCaps;
+import com.devodox.stopatestimate.model.ProjectState;
+import com.devodox.stopatestimate.model.ProjectUsage;
+import com.devodox.stopatestimate.model.RateInfo;
+import com.devodox.stopatestimate.model.ResetWindow;
+import com.devodox.stopatestimate.model.ResetWindowSchedule;
+import com.devodox.stopatestimate.model.RunningTimeEntry;
+import com.devodox.stopatestimate.model.entity.GuardEventEntity;
+import com.devodox.stopatestimate.repository.CutoffJobRepository;
+import com.devodox.stopatestimate.repository.GuardEventRepository;
+import com.devodox.stopatestimate.service.ClockifyLifecycleService;
+import com.devodox.stopatestimate.service.EstimateGuardService;
+import com.devodox.stopatestimate.service.ProjectLockService;
+import com.devodox.stopatestimate.service.ProjectUsageService;
+import com.devodox.stopatestimate.store.CutoffJobStore;
+import com.google.gson.JsonObject;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
+
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class EstimateGuardServiceTest {
+
+    private ClockifyLifecycleService lifecycleService;
+    private ProjectUsageService projectUsageService;
+    private ProjectLockService projectLockService;
+    private ClockifyBackendApiClient backendApiClient;
+    private CutoffJobStore cutoffJobStore;
+    private CutoffJobRepository cutoffJobRepository;
+    private GuardEventRepository guardEventRepository;
+    private EstimateGuardService service;
+    private final Clock fixedClock = Clock.fixed(Instant.parse("2026-04-16T10:00:00Z"), ZoneOffset.UTC);
+
+    @BeforeEach
+    void setUp() {
+        lifecycleService = Mockito.mock(ClockifyLifecycleService.class);
+        projectUsageService = Mockito.mock(ProjectUsageService.class);
+        projectLockService = Mockito.mock(ProjectLockService.class);
+        backendApiClient = Mockito.mock(ClockifyBackendApiClient.class);
+        cutoffJobStore = Mockito.mock(CutoffJobStore.class);
+        cutoffJobRepository = Mockito.mock(CutoffJobRepository.class);
+        guardEventRepository = Mockito.mock(GuardEventRepository.class);
+        service = new EstimateGuardService(
+                lifecycleService, projectUsageService, projectLockService,
+                cutoffJobStore, cutoffJobRepository, guardEventRepository, backendApiClient, fixedClock);
+    }
+
+    @Test
+    void belowCapDoesNotLockOrStopTimers() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectState());
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                3_600_000L,
+                BigDecimal.valueOf(1000),
+                BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of());
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        service.reconcileProject("ws-1", "project-1", "test", null);
+
+        verify(backendApiClient, never()).stopRunningTimer(any(), anyString(), anyString());
+        verify(projectLockService, never()).lockProject(any(), any(), any());
+    }
+
+    @Test
+    void timeCapReachedLocksAndStopsTimers() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectState());
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                7_200_000L,
+                BigDecimal.valueOf(1000),
+                BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600))));
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
+
+        verify(backendApiClient).stopRunningTimer(any(), anyString(), anyString());
+        verify(projectLockService).lockProject(any(), any(), any());
+    }
+
+    @Test
+    void budgetCapReachedLocksAndStopsTimers() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectState());
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                1_800_000L,
+                BigDecimal.valueOf(60_000),
+                BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600))));
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
+
+        verify(backendApiClient).stopRunningTimer(any(), anyString(), anyString());
+        verify(projectLockService).lockProject(any(), any(), any());
+    }
+
+    @Test
+    void inactiveOrDisabledWorkspaceDoesNotEnforce() {
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation(false, AddonStatus.INACTIVE, "ENFORCE")));
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        service.reconcileProject("ws-1", "project-1", "test", null);
+
+        verify(projectUsageService, never()).loadProjectState(any(), anyString());
+        verify(backendApiClient, never()).stopRunningTimer(any(), anyString(), anyString());
+        verify(projectLockService, never()).lockProject(any(), any(), any());
+    }
+
+    private InstallationRecord installation(boolean enabled, AddonStatus status, String mode) {
+        return new InstallationRecord(
+                "ws-1",
+                "addon-123",
+                "addon-user",
+                "owner-user",
+                "installation-token",
+                "https://api.clockify.me/api",
+                "https://reports.api.clockify.me",
+                java.util.Map.of(),
+                status,
+                enabled,
+                mode,
+                "MONTHLY",
+                fixedClock.instant(),
+                fixedClock.instant());
+    }
+
+    private ProjectState projectState() {
+        return new ProjectState(
+                "ws-1",
+                "project-1",
+                "Project 1",
+                true,
+                List.of(),
+                List.of(),
+                RateInfo.empty(),
+                new RateInfo(BigDecimal.valueOf(1000), "USD"),
+                new ProjectCaps(true, 7_200_000L, "MONTHLY", false, true, BigDecimal.valueOf(50_000), "MONTHLY", false, ResetWindowSchedule.none()));
+    }
+
+    private ProjectState projectStateWithTimeCap(long timeLimitMs) {
+        // Budget cap disabled so only the time branch drives the cutoff plan. Cost rate is left
+        // unset — irrelevant for the time-only scenario.
+        return new ProjectState(
+                "ws-1",
+                "project-1",
+                "Project 1",
+                true,
+                List.of(),
+                List.of(),
+                RateInfo.empty(),
+                RateInfo.empty(),
+                new ProjectCaps(true, timeLimitMs, "MONTHLY", false, false, BigDecimal.ZERO, "MONTHLY", false, ResetWindowSchedule.none()));
+    }
+
+    // Regression: cutoffPlan must subtract elapsed time on running timers so repeated reconciles
+    // converge. Before the fix, cutoffAt slid forward by (cap - tracked) on every tick and the
+    // scheduler never reached the locking path.
+    @Test
+    void cutoffAtAccountsForRunningTimerElapsedTime() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectStateWithTimeCap(60_000L));
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        Instant entryStart = fixedClock.instant().minusSeconds(10);
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", entryStart)));
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
+
+        ArgumentCaptor<PendingCutoffJob> jobCaptor = ArgumentCaptor.forClass(PendingCutoffJob.class);
+        verify(cutoffJobStore).save(jobCaptor.capture());
+        // 10s already elapsed against a 60s cap → only 50s remain, so cutoffAt is entry.start+60s.
+        assertThat(jobCaptor.getValue().cutoffAt()).isEqualTo(entryStart.plusSeconds(60));
+        verify(backendApiClient, never()).stopRunningTimer(any(), anyString(), anyString());
+        verify(projectLockService, never()).lockProject(any(), any(), any());
+    }
+
+    @Test
+    void elapsedExceedingCapReturnsImmediateLockNow() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectStateWithTimeCap(60_000L));
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        // 90s elapsed against a 60s cap — completed tracked time is still 0 (summary report only
+        // reflects completed entries), but the elapsed subtraction forces lockNow on this tick.
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(90))));
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
+
+        verify(backendApiClient).stopRunningTimer(any(), anyString(), anyString());
+        ArgumentCaptor<GuardReason> reasonCaptor = ArgumentCaptor.forClass(GuardReason.class);
+        verify(projectLockService).lockProject(any(), any(), reasonCaptor.capture());
+        assertThat(reasonCaptor.getValue()).isEqualTo(GuardReason.TIME_CAP_REACHED);
+    }
+
+    @Test
+    void budgetCapElapsedCostAccountingReachesImmediateLock() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        // Budget cap $60, no completed usage, rate $1000/h on running timer that's been alive
+        // long enough that elapsed cost exceeds the cap.
+        ProjectState state = new ProjectState(
+                "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
+                RateInfo.empty(),
+                new RateInfo(BigDecimal.valueOf(1000), "USD"),
+                new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(60), "MONTHLY", false, ResetWindowSchedule.none()));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        // 600s @ $1000/h = $166 — elapsed cost alone blows past the $60 budget.
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600))));
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
+
+        verify(backendApiClient).stopRunningTimer(any(), anyString(), anyString());
+        ArgumentCaptor<GuardReason> reasonCaptor = ArgumentCaptor.forClass(GuardReason.class);
+        verify(projectLockService).lockProject(any(), any(), reasonCaptor.capture());
+        assertThat(reasonCaptor.getValue()).isEqualTo(GuardReason.BUDGET_CAP_REACHED);
+    }
+
+    // ----- Gap 1: guard_events audit trail assertions -----
+
+    @Test
+    void auditTrailEmitsLockedAndTimerStoppedOnExceeded() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectState());
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                7_200_000L,
+                BigDecimal.valueOf(1000),
+                BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600))));
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
+
+        ArgumentCaptor<GuardEventEntity> captor = ArgumentCaptor.forClass(GuardEventEntity.class);
+        verify(guardEventRepository, times(2)).save(captor.capture());
+        List<GuardEventEntity> saved = captor.getAllValues();
+        assertThat(saved).extracting(GuardEventEntity::getEventType)
+                .containsExactly(GuardEventType.TIMER_STOPPED.name(), GuardEventType.LOCKED.name());
+        assertThat(saved).allSatisfy(e -> {
+            assertThat(e.getGuardReason()).isEqualTo(GuardReason.TIME_CAP_REACHED.name());
+            assertThat(e.getSource()).isEqualTo("webhook:NEW_TIME_ENTRY");
+            assertThat(e.getProjectId()).isEqualTo("project-1");
+        });
+    }
+
+    @Test
+    void auditTrailEmitsUnlockedWhenBelowCaps() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectState());
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of());
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(true);
+
+        service.reconcileProject("ws-1", "project-1", "scheduler:tick", null);
+
+        ArgumentCaptor<GuardEventEntity> captor = ArgumentCaptor.forClass(GuardEventEntity.class);
+        verify(guardEventRepository).save(captor.capture());
+        assertThat(captor.getValue().getEventType()).isEqualTo(GuardEventType.UNLOCKED.name());
+        assertThat(captor.getValue().getGuardReason()).isEqualTo(GuardReason.BELOW_CAPS.name());
+        assertThat(captor.getValue().getPayloadFingerprint()).isEqualTo("scheduler");
+    }
+
+    @Test
+    void auditTrailEmitsCutoffScheduled() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectStateWithTimeCap(3_600_000L));
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(60))));
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
+
+        ArgumentCaptor<GuardEventEntity> captor = ArgumentCaptor.forClass(GuardEventEntity.class);
+        verify(guardEventRepository).save(captor.capture());
+        assertThat(captor.getValue().getEventType()).isEqualTo(GuardEventType.CUTOFF_SCHEDULED.name());
+        assertThat(captor.getValue().getGuardReason()).isNotNull();
+    }
+}
