@@ -3,11 +3,13 @@ package com.devodox.stopatestimate.service;
 import com.devodox.stopatestimate.api.ClockifyBackendApiClient;
 import com.devodox.stopatestimate.api.ClockifyReportsApiClient;
 import com.devodox.stopatestimate.model.ResetWindow;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -53,5 +55,54 @@ class ProjectUsageServiceTest {
         assertThat(body.getAsJsonObject("projects").getAsJsonArray("ids").get(0).getAsString())
                 .isEqualTo("project-42");
         assertThat(body.has("summaryFilter")).isTrue();
+    }
+
+    @Test
+    void summaryExtractsEarnedAmountType() {
+        JsonObject summary = summaryWithAmount("EARNED", "42");
+        assertThat(service.extractSummaryBillable(summary)).isEqualByComparingTo("42");
+    }
+
+    @Test
+    void summaryExtractsBilledAmountTypeCaseInsensitive() {
+        JsonObject summary = summaryWithAmount("billed", "7");
+        assertThat(service.extractSummaryBillable(summary)).isEqualByComparingTo("7");
+    }
+
+    @Test
+    void summaryIgnoresCostAmountTypeForBudget() {
+        // Project budgetEstimate is billable, not cost. A summary that returns only COST entries
+        // (e.g. workspaces with Cost Analysis enabled but no billable rates) must contribute
+        // nothing to budget usage — otherwise the addon would lock projects against an
+        // unrelated metric.
+        JsonObject summary = summaryWithAmount("COST", "99");
+        assertThat(service.extractSummaryBillable(summary)).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void summaryFallsBackToTotalBillableWhenAmountsArrayAbsent() {
+        JsonObject totalsEntry = new JsonObject();
+        totalsEntry.addProperty("totalBillable", new BigDecimal("15"));
+        JsonArray totals = new JsonArray();
+        totals.add(totalsEntry);
+        JsonObject summary = new JsonObject();
+        summary.add("totals", totals);
+
+        assertThat(service.extractSummaryBillable(summary)).isEqualByComparingTo("15");
+    }
+
+    private static JsonObject summaryWithAmount(String type, String value) {
+        JsonObject amount = new JsonObject();
+        amount.addProperty("type", type);
+        amount.addProperty("value", new BigDecimal(value));
+        JsonArray amounts = new JsonArray();
+        amounts.add(amount);
+        JsonObject totalsEntry = new JsonObject();
+        totalsEntry.add("amounts", amounts);
+        JsonArray totals = new JsonArray();
+        totals.add(totalsEntry);
+        JsonObject summary = new JsonObject();
+        summary.add("totals", totals);
+        return summary;
     }
 }

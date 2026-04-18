@@ -226,9 +226,10 @@ prefix of the webhook JSON body otherwise. Rows are read back via `GET /api/guar
 
 ### Budget Usage
 
-- Use project cost rate data plus tracked duration for labor cost.
+- Use project hourly-rate data plus billable tracked duration to derive the billable amount; this matches Clockify's `budgetEstimate` semantics for both `MANUAL` and `PER_TASK` budget types. Non-billable time entries do not accrue against the budget cap.
+- Read the billable amount from the summary report's `totals[].amounts[]` entries of type `EARNED` or `BILLED` (Clockify uses both labels depending on workspace features). Fall back to top-level `totalBillable` then `totalAmount`. `COST` entries are explicitly ignored — they reflect internal cost and are unrelated to budget cap math. The summary filter must not request a specific amounts subset (that requires Cost Analysis and 400s with code 501 on workspaces without it).
 - Include expenses when the project cap semantics require them.
-- If a budget cap exists but the required rate data is missing, treat the project as requiring reconcile attention and fail closed for enforcement decisions that depend on ambiguous budget math.
+- If a budget cap exists but the required rate data is missing for a billable running timer, treat the project as requiring reconcile attention and fail closed for enforcement decisions that depend on ambiguous budget math.
 
 ### Cutoff Timing
 

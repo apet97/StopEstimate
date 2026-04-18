@@ -38,14 +38,16 @@ were closed in the 2026-04-18 commit:
 
 ### External blocker — not addon-side
 
-- [ ] **[EXTERNAL]** Clockify's addon webhook delivery for workspace `69bda6b317a0c5babe34b4ff` is
-      stuck — zero delivery attempts on all 5 manifest-declared events, including from SEND TEST.
-      Lifecycle POSTs arrive fine to the same baseUrl; webhook POSTs never do. Full uninstall +
-      reinstall does not reset the state. Addon-registered webhooks can't be deleted from the
-      Clockify admin UI. Matches a known Clockify-side bug previously fixed by their engineering
-      for user webhooks (https://forum.clockify.me/t/webhooks/21). **Resolution path:** file a
-      support ticket — draft ready at [`SUPPORT_TICKET.md`](./SUPPORT_TICKET.md). Impact on
-      correctness: none — scheduler path handles every case within ≤60s.
+- [ ] **[EXTERNAL — dev only, not release-blocking]** Clockify's addon webhook delivery for the
+      developer workspace `69bda6b317a0c5babe34b4ff` is stuck — zero delivery attempts on all 5
+      manifest-declared events, including from SEND TEST. **Production verified 2026-04-19:** the
+      same 5 webhooks deliver normally on prod Pro workspaces, so this is isolated to the one dev
+      tenant. Lifecycle POSTs arrive fine to the same baseUrl on dev; webhook POSTs never do. Full
+      uninstall + reinstall does not reset the state. Addon-registered webhooks can't be deleted
+      from the Clockify admin UI. Matches a known Clockify-side bug previously fixed by their
+      engineering for user webhooks (https://forum.clockify.me/t/webhooks/21). **Resolution path:**
+      file a support ticket when the dev tenant is needed for webhook smoke again — draft ready at
+      [`SUPPORT_TICKET.md`](./SUPPORT_TICKET.md). Webhook handlers stay registered as declared.
 
 ---
 

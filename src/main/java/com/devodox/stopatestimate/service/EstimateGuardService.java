@@ -368,7 +368,7 @@ public class EstimateGuardService {
         long elapsedMs = Math.max(0L, now.toEpochMilli() - entry.start().toEpochMilli());
         long trackedBeforeCurrent = Math.max(0L, usage.trackedTimeMs() - elapsedMs);
         BigDecimal budgetBeforeCurrent = usage.budgetUsage(projectState.caps().includeExpenses())
-                .subtract(elapsedCost(projectState, entry.userId(), elapsedMs))
+                .subtract(elapsedBillable(projectState, entry, elapsedMs))
                 .max(BigDecimal.ZERO);
 
         if ((projectState.caps().timeCapActive() && trackedBeforeCurrent >= projectState.caps().timeLimitMs())
@@ -406,23 +406,33 @@ public class EstimateGuardService {
 
         if (caps.budgetCapActive()) {
             BigDecimal remainingBudget = caps.budgetLimit().subtract(usage.budgetUsage(caps.includeExpenses()));
-            // Same rationale as the time branch: subtract the cost already accrued on still-
-            // running timers, so repeated reconciles converge rather than keeping remaining flat.
-            BigDecimal elapsedCostRunning = runningEntries.stream()
+            // Same rationale as the time branch: subtract the billable amount already accrued on
+            // still-running billable timers, so repeated reconciles converge rather than keeping
+            // remaining flat. Non-billable entries do not accrue against the budget cap.
+            BigDecimal elapsedBillableRunning = runningEntries.stream()
                     .filter(e -> e.start() != null)
-                    .map(e -> elapsedCost(projectState, e.userId(),
+                    .filter(RunningTimeEntry::billable)
+                    .map(e -> elapsedBillable(projectState, e,
                             Math.max(0L, now.toEpochMilli() - e.start().toEpochMilli())))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-            remainingBudget = remainingBudget.subtract(elapsedCostRunning);
+            remainingBudget = remainingBudget.subtract(elapsedBillableRunning);
             if (remainingBudget.compareTo(BigDecimal.ZERO) <= 0) {
                 return new CutoffPlan(now, true, GuardReason.BUDGET_CAP_REACHED);
             }
-            BigDecimal aggregateRate = aggregateBudgetRatePerMillisecond(projectState, runningEntries);
-            if (aggregateRate.compareTo(BigDecimal.ZERO) <= 0) {
-                return new CutoffPlan(now, true, GuardReason.BUDGET_CAP_REACHED);
+            boolean anyBillable = runningEntries.stream().anyMatch(RunningTimeEntry::billable);
+            if (anyBillable) {
+                BigDecimal aggregateRate = aggregateBudgetRatePerMillisecond(projectState, runningEntries);
+                if (aggregateRate.compareTo(BigDecimal.ZERO) <= 0) {
+                    // SPEC §5 fail-closed: a billable timer is running but we can't determine its
+                    // hourly rate, so budget math is ambiguous — lock immediately rather than
+                    // letting the timer accrue past the cap.
+                    return new CutoffPlan(now, true, GuardReason.BUDGET_CAP_REACHED);
+                }
+                long millis = remainingBudget.divide(aggregateRate, 0, RoundingMode.DOWN).longValue();
+                candidateCutoffs.add(now.plusMillis(Math.max(0L, millis)));
             }
-            long millis = remainingBudget.divide(aggregateRate, 0, RoundingMode.DOWN).longValue();
-            candidateCutoffs.add(now.plusMillis(Math.max(0L, millis)));
+            // If no entries are billable, no labor accrues against the budget on this tick —
+            // omit a budget candidate and let the time branch (if active) drive the cutoff.
         }
 
         Instant cutoffAt = candidateCutoffs.stream().min(Comparator.naturalOrder()).orElse(null);
@@ -433,19 +443,28 @@ public class EstimateGuardService {
     }
 
     private BigDecimal aggregateBudgetRatePerMillisecond(ProjectState projectState, List<RunningTimeEntry> runningEntries) {
+        // Caller is expected to have at least one billable entry. Non-billable entries are
+        // ignored. ZERO signals "rate missing on a billable entry" — caller must treat that
+        // as fail-closed per SPEC §5.
         BigDecimal total = BigDecimal.ZERO;
         for (RunningTimeEntry entry : runningEntries) {
-            Optional<RateInfo> costRate = projectState.costRateForUser(entry.userId());
-            if (costRate.isEmpty() || !costRate.get().present()) {
+            if (!entry.billable()) {
+                continue;
+            }
+            Optional<RateInfo> hourlyRate = projectState.hourlyRateForUser(entry.userId());
+            if (hourlyRate.isEmpty() || !hourlyRate.get().present()) {
                 return BigDecimal.ZERO;
             }
-            total = total.add(costRate.get().amount().divide(BigDecimal.valueOf(3_600_000L), 12, RoundingMode.HALF_UP));
+            total = total.add(hourlyRate.get().amount().divide(BigDecimal.valueOf(3_600_000L), 12, RoundingMode.HALF_UP));
         }
         return total;
     }
 
-    private BigDecimal elapsedCost(ProjectState projectState, String userId, long elapsedMs) {
-        return projectState.costRateForUser(userId)
+    private BigDecimal elapsedBillable(ProjectState projectState, RunningTimeEntry entry, long elapsedMs) {
+        if (!entry.billable()) {
+            return BigDecimal.ZERO;
+        }
+        return projectState.hourlyRateForUser(entry.userId())
                 .filter(RateInfo::present)
                 .map(rate -> rate.amount()
                         .multiply(BigDecimal.valueOf(elapsedMs))

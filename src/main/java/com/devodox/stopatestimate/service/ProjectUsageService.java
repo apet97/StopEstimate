@@ -65,7 +65,7 @@ public class ProjectUsageService {
         return new ProjectUsage(
                 window,
                 extractSummaryTotalTime(summary),
-                extractSummaryCost(summary),
+                extractSummaryBillable(summary),
                 expenses);
     }
 
@@ -89,7 +89,8 @@ public class ProjectUsageService {
                     projectId,
                     ClockifyJson.findFirstString(entry, "userId").orElse(null),
                     ClockifyJson.findFirstString(entry, "id", "timeEntryId").orElse(null),
-                    start));
+                    start,
+                    ClockifyJson.bool(entry, "billable").orElse(false)));
         }
         return entries;
     }
@@ -189,10 +190,11 @@ public class ProjectUsageService {
         projects.add("ids", ids);
         filter.add("projects", projects);
 
-        // Requesting amounts:["COST"] forces the workspace to have Cost Analysis enabled; without
-        // it Clockify returns HTTP 400 code 501. We only need totalTime here — cost is derived
-        // from amounts only when the response includes them, and budget usage falls back to
-        // expenses + zero cost when not present (see extractSummaryCost).
+        // Requesting any amounts subset forces the workspace to have Cost Analysis enabled;
+        // without it Clockify returns HTTP 400 code 501. We only need totalTime here — the
+        // billable amount is derived from totals[].amounts[] only when the response includes
+        // it, and budget usage falls back to expenses when not (see extractSummaryBillable).
+        // Project budgetEstimate tracks billable amount, so we read EARNED/BILLED entries.
         JsonObject summaryFilter = new JsonObject();
         JsonArray groups = new JsonArray();
         groups.add("PROJECT");
@@ -253,11 +255,16 @@ public class ProjectUsageService {
         return totalSeconds * 1000L;
     }
 
-    private BigDecimal extractSummaryCost(JsonObject summary) {
-        // Clockify summary response: totals[].amounts[] = [{type: "COST", value: 3.32, ...}]
-        // We no longer request amounts on the filter (workspaces without Cost Analysis reject it
-        // with HTTP 400 code 501); on such workspaces totals[].amounts will be absent and this
-        // returns ZERO. Budget caps then rely on the expenses path only.
+    BigDecimal extractSummaryBillable(JsonObject summary) {
+        // Clockify summary response: totals[].amounts[] = [{type: "EARNED", value: 3.32, ...}].
+        // Project budgetEstimate tracks billable amount (hourlyRate × billable hours, plus
+        // expenses when includeExpenses is set), not internal cost. We read EARNED/BILLED
+        // amount-type entries — Clockify uses both labels depending on workspace features.
+        // We never request amounts on the filter (that requires Cost Analysis and 400s with
+        // code 501 on workspaces without it); we just consume whatever is present. When the
+        // amounts array is absent we fall back to top-level totalBillable / totalAmount, then
+        // zero. COST entries are explicitly ignored because they reflect internal cost and
+        // are unrelated to budget cap math.
         BigDecimal total = BigDecimal.ZERO;
         JsonArray totals = ClockifyJson.array(summary, "totals");
         if (totals != null) {
@@ -266,16 +273,16 @@ public class ProjectUsageService {
                     continue;
                 }
                 JsonObject obj = entry.getAsJsonObject();
-                BigDecimal cost = pickCostAmount(obj);
-                if (cost != null) {
-                    total = total.add(cost);
+                BigDecimal billable = pickBillableAmount(obj);
+                if (billable != null) {
+                    total = total.add(billable);
                 }
             }
         }
         return total;
     }
 
-    private BigDecimal pickCostAmount(JsonObject totalsEntry) {
+    private BigDecimal pickBillableAmount(JsonObject totalsEntry) {
         JsonArray amounts = ClockifyJson.array(totalsEntry, "amounts");
         if (amounts != null) {
             for (JsonElement element : amounts) {
@@ -284,10 +291,14 @@ public class ProjectUsageService {
                 }
                 JsonObject a = element.getAsJsonObject();
                 String type = ClockifyJson.string(a, "type").orElse("");
-                if ("COST".equalsIgnoreCase(type) && a.has("value") && !a.get("value").isJsonNull()) {
+                if (("EARNED".equalsIgnoreCase(type) || "BILLED".equalsIgnoreCase(type))
+                        && a.has("value") && !a.get("value").isJsonNull()) {
                     return ClockifyJson.decimal(a.get("value"));
                 }
             }
+        }
+        if (totalsEntry.has("totalBillable") && !totalsEntry.get("totalBillable").isJsonNull()) {
+            return ClockifyJson.decimal(totalsEntry.get("totalBillable"));
         }
         if (totalsEntry.has("totalAmount") && !totalsEntry.get("totalAmount").isJsonNull()) {
             return ClockifyJson.decimal(totalsEntry.get("totalAmount"));

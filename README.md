@@ -16,7 +16,7 @@ Built for workspaces where an estimate is a *commitment*, not a soft target. The
 | **Hard-stop mechanism** | Webhook (instant) + scheduler tick (≤60s backstop). See [How enforcement works](#how-enforcement-works). |
 | **Audit trail** | Every lock / unlock / cutoff / timer-stop persisted in `guard_events`, exposed via `GET /api/guard/events` |
 | **Data store** | PostgreSQL (not file-backed). Installation tokens + webhook tokens AES-256 at rest. |
-| **Known external blocker** | Clockify webhook delivery for addon webhooks is currently stuck on the dev workspace (zero delivery attempts for any event, confirmed via SEND TEST). See [Known issues](#known-issues). Scheduler path compensates fully. |
+| **Webhook delivery** | Confirmed working on production Pro workspaces (verified 2026-04-19). The developer workspace `69bda6b317a0c5babe34b4ff` shows zero delivery attempts — Clockify-side state issue isolated to that one tenant; see [Known issues](#known-issues). Production cutover takes the webhook path; the 60s scheduler tick remains the durable backstop on either workspace. |
 
 ---
 
@@ -60,6 +60,7 @@ Two independent paths notice timer activity. Either one triggers the same guard 
 | Manual entry pushes the project over the cap | The entry itself lands (addon can't retro-reject it — it's already posted), but the project locks immediately after. Worst case = cap + one user's one manual entry. |
 | Project already over cap | Subsequent timer starts are stopped on the next tick; new manual entries are blocked at the Clockify API layer because membership has been pruned. |
 | Cap crosses back under (admin raises the estimate, reset window) | Next reconcile unlocks, restores memberships from `project_lock_snapshots`, writes `UNLOCKED` event. |
+| Budget cap basis | Billable amount = `hourlyRate × billable duration` (per-user `hourlyRate` first, project `defaultHourlyRate` fallback) plus expenses when `includeExpenses` is set. Non-billable entries do not accrue against the budget cap (they still accrue against the time cap if one exists). Internal cost (`costRate`) is not used. |
 
 ---
 
@@ -147,18 +148,20 @@ curl -s http://localhost:8080/actuator/health
 
 ## Known issues
 
-### External — Clockify addon webhook delivery shows zero attempts
+### External — Clockify addon webhook delivery stuck on the dev workspace only
 
-On the developer workspace the addon-registered webhooks (manifest-declared) never receive deliveries from Clockify, including when "SEND TEST" is clicked from the admin Webhooks page. Verified by:
+**Production status:** webhook deliveries arrive normally on production Pro workspaces (verified 2026-04-19) — `NEW_TIMER_STARTED` / `NEW_TIME_ENTRY` etc. fire as soon as the user-side action lands, and the addon's per-route handlers receive the signed POST and reconcile within seconds. The 5 manifest-declared webhooks are the primary low-latency path in prod.
+
+**Dev workspace `69bda6b317a0c5babe34b4ff`:** addon-registered webhooks never receive deliveries — including when "SEND TEST" is clicked from the admin Webhooks page. Verified by:
 
 - Tomcat access log shows 0 `POST /webhook/*` entries from any source; lifecycle POSTs land perfectly
 - `/webhook/new-timer-started` returns 401 to external bad-signature probes (handler alive, route reachable via tunnel)
 - Clockify admin UI confirms `0 attempts` after SEND TEST
 - Full uninstall + reinstall does not reset the stuck state
 
-This matches a [known Clockify-side bug](https://forum.clockify.me/t/webhooks/21) previously fixed by their engineering for other users. Since addon-registered webhooks cannot be deleted from the Clockify admin UI (only reinstalled), the resolution path is a Clockify support ticket.
+This matches a [known Clockify-side bug](https://forum.clockify.me/t/webhooks/21) previously fixed by their engineering for other users on user-registered webhooks. Since this is now isolated to a single dev tenant, it is no longer release-blocking; the SUPPORT_TICKET draft is kept for whenever the dev workspace eventually needs unsticking.
 
-**Impact on this addon**: none for enforcement correctness — the 60s scheduler tick is the durable path and was specifically designed as the backstop. Hard-stop latency is bounded at ≤60s from breach. Webhook delivery would tighten this to seconds once Clockify's state is unstuck.
+**Impact on this addon**: none. In prod the webhook path drives near-instant reconcile; on the stuck dev tenant the 60s scheduler tick is the backstop (≤60s from breach). The webhook handlers stay registered exactly as declared.
 
 ### Internal — see [TODO.md](./TODO.md) for the full backlog
 
@@ -183,5 +186,5 @@ See [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md). Key items:
 - [x] `GET /actuator/health` — `UP`, including database connectivity
 - [x] Private install on a Pro workspace succeeds and persists workspace state
 - [x] Hard-stop and reconcile flows verified against a real project with caps — timer end set at cap boundary, memberships pruned to snapshot, `guard_events` rows landed
-- [ ] Clockify support ticket filed re: addon webhook delivery (Clockify-side)
+- [x] Webhook deliveries confirmed working on production Pro workspaces (2026-04-19); dev-tenant unstick (Clockify-side, draft in `SUPPORT_TICKET.md`) is no longer release-blocking
 - [ ] Submission checklist in [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md) complete

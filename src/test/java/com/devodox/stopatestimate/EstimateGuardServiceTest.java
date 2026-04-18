@@ -98,7 +98,7 @@ class EstimateGuardServiceTest {
                 BigDecimal.valueOf(1000),
                 BigDecimal.ZERO));
         when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
-                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600))));
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600), true)));
 
         service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
 
@@ -117,7 +117,7 @@ class EstimateGuardServiceTest {
                 BigDecimal.valueOf(60_000),
                 BigDecimal.ZERO));
         when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
-                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600))));
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600), true)));
 
         service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
 
@@ -156,6 +156,7 @@ class EstimateGuardServiceTest {
     }
 
     private ProjectState projectState() {
+        // Default hourly rate drives budget math (Clockify's budgetEstimate is billable, not cost).
         return new ProjectState(
                 "ws-1",
                 "project-1",
@@ -163,8 +164,8 @@ class EstimateGuardServiceTest {
                 true,
                 List.of(),
                 List.of(),
-                RateInfo.empty(),
                 new RateInfo(BigDecimal.valueOf(1000), "USD"),
+                RateInfo.empty(),
                 new ProjectCaps(true, 7_200_000L, "MONTHLY", false, true, BigDecimal.valueOf(50_000), "MONTHLY", false, ResetWindowSchedule.none()));
     }
 
@@ -198,7 +199,7 @@ class EstimateGuardServiceTest {
                 BigDecimal.ZERO));
         Instant entryStart = fixedClock.instant().minusSeconds(10);
         when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
-                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", entryStart)));
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", entryStart, true)));
         when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
 
         service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
@@ -224,7 +225,7 @@ class EstimateGuardServiceTest {
         // 90s elapsed against a 60s cap — completed tracked time is still 0 (summary report only
         // reflects completed entries), but the elapsed subtraction forces lockNow on this tick.
         when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
-                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(90))));
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(90), true)));
         when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
 
         service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
@@ -236,15 +237,15 @@ class EstimateGuardServiceTest {
     }
 
     @Test
-    void budgetCapElapsedCostAccountingReachesImmediateLock() {
+    void elapsedBillableExceedingCapReturnsImmediateLockNow() {
         InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
         when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
-        // Budget cap $60, no completed usage, rate $1000/h on running timer that's been alive
-        // long enough that elapsed cost exceeds the cap.
+        // Budget cap $60, no completed usage, hourly rate $1000/h on a billable running timer
+        // that's been alive long enough that elapsed billable amount exceeds the cap.
         ProjectState state = new ProjectState(
                 "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
-                RateInfo.empty(),
                 new RateInfo(BigDecimal.valueOf(1000), "USD"),
+                RateInfo.empty(),
                 new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(60), "MONTHLY", false, ResetWindowSchedule.none()));
         when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
         when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
@@ -252,9 +253,9 @@ class EstimateGuardServiceTest {
                 0L,
                 BigDecimal.ZERO,
                 BigDecimal.ZERO));
-        // 600s @ $1000/h = $166 — elapsed cost alone blows past the $60 budget.
+        // 600s @ $1000/h = $166 — elapsed billable alone blows past the $60 budget.
         when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
-                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600))));
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600), true)));
         when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
 
         service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
@@ -263,6 +264,125 @@ class EstimateGuardServiceTest {
         ArgumentCaptor<GuardReason> reasonCaptor = ArgumentCaptor.forClass(GuardReason.class);
         verify(projectLockService).lockProject(any(), any(), reasonCaptor.capture());
         assertThat(reasonCaptor.getValue()).isEqualTo(GuardReason.BUDGET_CAP_REACHED);
+    }
+
+    // ----- Budget-cap billable-amount path (replaces the cost-rate path) -----
+
+    @Test
+    void budgetCapReachedLocksAndStopsTimers_usesHourlyRate() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        // Project state: hourlyRate set, costRate empty. Budget cap $100, no time cap.
+        ProjectState state = new ProjectState(
+                "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
+                new RateInfo(BigDecimal.valueOf(60), "USD"),
+                RateInfo.empty(),
+                new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(100), "MONTHLY", false, ResetWindowSchedule.none()));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
+        // Summary already returned billable = $100 (the EARNED amount type extraction is verified
+        // separately in ProjectUsageServiceTest); guard must trip on the equality.
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.valueOf(100),
+                BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(60), true)));
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
+
+        verify(backendApiClient).stopRunningTimer(any(), anyString(), anyString());
+        ArgumentCaptor<GuardReason> reasonCaptor = ArgumentCaptor.forClass(GuardReason.class);
+        verify(projectLockService).lockProject(any(), any(), reasonCaptor.capture());
+        assertThat(reasonCaptor.getValue()).isEqualTo(GuardReason.BUDGET_CAP_REACHED);
+    }
+
+    @Test
+    void budgetCapIgnoresCostAmountType() {
+        // Simulates the upstream behavior: extractSummaryBillable returns ZERO when the summary
+        // response contains only COST entries (verified directly in ProjectUsageServiceTest).
+        // Guard must NOT breach because budgetUsage=0 < cap=100.
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        ProjectState state = new ProjectState(
+                "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
+                new RateInfo(BigDecimal.valueOf(60), "USD"),
+                RateInfo.empty(),
+                new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(100), "MONTHLY", false, ResetWindowSchedule.none()));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of());
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        service.reconcileProject("ws-1", "project-1", "scheduler:tick", null);
+
+        verify(backendApiClient, never()).stopRunningTimer(any(), anyString(), anyString());
+        verify(projectLockService, never()).lockProject(any(), any(), any());
+    }
+
+    @Test
+    void cutoffAtAccountsForBillableElapsed() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        // Budget cap $60, no completed usage. One billable running timer at $3600/h ($1/s — picked
+        // because it divides 3,600,000 ms exactly so BigDecimal rounding doesn't drift the cutoff).
+        // Started 30 s ago → elapsed billable = $30, remaining = $30 → 30 s until cap →
+        // cutoffAt = entry.start + 60 s. Validates that elapsed billable is subtracted (without
+        // it, remaining would stay $60 → cutoffAt = entry.start + 90 s).
+        ProjectState state = new ProjectState(
+                "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
+                new RateInfo(BigDecimal.valueOf(3600), "USD"),
+                RateInfo.empty(),
+                new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(60), "MONTHLY", false, ResetWindowSchedule.none()));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        Instant entryStart = fixedClock.instant().minusSeconds(30);
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", entryStart, true)));
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
+
+        ArgumentCaptor<PendingCutoffJob> jobCaptor = ArgumentCaptor.forClass(PendingCutoffJob.class);
+        verify(cutoffJobStore).save(jobCaptor.capture());
+        assertThat(jobCaptor.getValue().cutoffAt()).isEqualTo(entryStart.plusSeconds(60));
+        verify(backendApiClient, never()).stopRunningTimer(any(), anyString(), anyString());
+        verify(projectLockService, never()).lockProject(any(), any(), any());
+    }
+
+    @Test
+    void nonBillableRunningTimerIgnoredForBudgetOnly() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        // Cap $10, hourlyRate $120/h, 30 min elapsed. If billable, elapsed = $60 → instant lock.
+        // Because billable=false, the budget branch must add no candidate and no lock occurs.
+        ProjectState state = new ProjectState(
+                "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
+                new RateInfo(BigDecimal.valueOf(120), "USD"),
+                RateInfo.empty(),
+                new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(10), "MONTHLY", false, ResetWindowSchedule.none()));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(30 * 60), false)));
+        when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
+
+        verify(backendApiClient, never()).stopRunningTimer(any(), anyString(), anyString());
+        verify(projectLockService, never()).lockProject(any(), any(), any());
     }
 
     // ----- Gap 1: guard_events audit trail assertions -----
@@ -278,7 +398,7 @@ class EstimateGuardServiceTest {
                 BigDecimal.valueOf(1000),
                 BigDecimal.ZERO));
         when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
-                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600))));
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(600), true)));
 
         service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
 
@@ -327,7 +447,7 @@ class EstimateGuardServiceTest {
                 BigDecimal.ZERO,
                 BigDecimal.ZERO));
         when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
-                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(60))));
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", fixedClock.instant().minusSeconds(60), true)));
         when(projectLockService.isLocked("ws-1", "project-1")).thenReturn(false);
 
         service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());

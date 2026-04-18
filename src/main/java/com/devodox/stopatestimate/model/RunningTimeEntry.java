@@ -8,5 +8,6 @@ public record RunningTimeEntry(
 		String projectId,
 		String userId,
 		String timeEntryId,
-		Instant start) implements Serializable {
+		Instant start,
+		boolean billable) implements Serializable {
 }

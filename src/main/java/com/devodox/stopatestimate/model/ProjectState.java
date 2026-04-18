@@ -23,4 +23,13 @@ public record ProjectState(
 				.findFirst()
 				.or(() -> Optional.ofNullable(defaultCostRate).filter(RateInfo::present));
 	}
+
+	public Optional<RateInfo> hourlyRateForUser(String userId) {
+		return directMembers.stream()
+				.filter(member -> userId.equals(member.userId()))
+				.map(ProjectMemberAccess::hourlyRate)
+				.filter(RateInfo::present)
+				.findFirst()
+				.or(() -> Optional.ofNullable(defaultHourlyRate).filter(RateInfo::present));
+	}
 }
