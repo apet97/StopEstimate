@@ -448,7 +448,9 @@ public class EstimateGuardService {
         }
 
         ProjectCaps caps = projectState.caps();
-        List<Instant> candidateCutoffs = new ArrayList<>();
+        // Pair each candidate with the branch that produced it so the shared "already in the
+        // past" fallback below returns the correct GuardReason instead of always TIME_CAP_REACHED.
+        List<CutoffCandidate> candidates = new ArrayList<>();
 
         if (caps.timeCapActive()) {
             // Clockify Reports summary only counts completed entries, so usage.trackedTimeMs() does
@@ -464,7 +466,9 @@ public class EstimateGuardService {
                 return new CutoffPlan(now, true, GuardReason.TIME_CAP_REACHED);
             }
             long concurrentTimers = runningEntries.size();
-            candidateCutoffs.add(now.plusMillis(Math.max(0L, remainingMs / concurrentTimers)));
+            candidates.add(new CutoffCandidate(
+                    now.plusMillis(Math.max(0L, remainingMs / concurrentTimers)),
+                    GuardReason.TIME_CAP_REACHED));
         }
 
         if (caps.budgetCapActive()) {
@@ -492,18 +496,27 @@ public class EstimateGuardService {
                     return new CutoffPlan(now, true, GuardReason.BUDGET_CAP_REACHED);
                 }
                 long millis = remainingBudget.divide(aggregateRate, 0, RoundingMode.DOWN).longValue();
-                candidateCutoffs.add(now.plusMillis(Math.max(0L, millis)));
+                candidates.add(new CutoffCandidate(
+                        now.plusMillis(Math.max(0L, millis)),
+                        GuardReason.BUDGET_CAP_REACHED));
             }
             // If no entries are billable, no labor accrues against the budget on this tick —
             // omit a budget candidate and let the time branch (if active) drive the cutoff.
         }
 
-        Instant cutoffAt = candidateCutoffs.stream().min(Comparator.naturalOrder()).orElse(null);
-        if (cutoffAt != null && !cutoffAt.isAfter(now)) {
-            return new CutoffPlan(now, true, GuardReason.TIME_CAP_REACHED);
+        CutoffCandidate earliest = candidates.stream()
+                .min(Comparator.comparing(CutoffCandidate::cutoffAt))
+                .orElse(null);
+        if (earliest == null) {
+            return new CutoffPlan(null, false, GuardReason.BELOW_CAPS);
         }
-        return new CutoffPlan(cutoffAt, false, GuardReason.BELOW_CAPS);
+        if (!earliest.cutoffAt().isAfter(now)) {
+            return new CutoffPlan(now, true, earliest.reason());
+        }
+        return new CutoffPlan(earliest.cutoffAt(), false, GuardReason.BELOW_CAPS);
     }
+
+    private record CutoffCandidate(Instant cutoffAt, GuardReason reason) {}
 
     private BigDecimal aggregateBudgetRatePerMillisecond(ProjectState projectState, List<RunningTimeEntry> runningEntries) {
         // Caller is expected to have at least one billable entry. Non-billable entries are
