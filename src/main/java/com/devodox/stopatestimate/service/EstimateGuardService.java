@@ -18,6 +18,8 @@ import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.store.CutoffJobStore;
 import com.devodox.stopatestimate.util.ClockifyJson;
 import com.google.gson.JsonObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +43,8 @@ import java.util.Set;
 
 @Service
 public class EstimateGuardService {
+    private static final Logger log = LoggerFactory.getLogger(EstimateGuardService.class);
+
     // Clockify's stop-timer endpoint documents yyyy-MM-dd'T'HH:mm:ssZ in its OpenAPI examples.
     // Instant.toString() emits variable precision (seconds to nanos depending on the instant).
     // Pin to millisecond precision so request bodies are stable and log output is readable.
@@ -197,47 +201,89 @@ public class EstimateGuardService {
         return List.copyOf(summaries);
     }
 
-    @Transactional
     public void processDueJobs(String source) {
+        // BUG-01: no method-wide @Transactional. A previous design rolled back every prior
+        // delete in the batch if any job threw. Each job now commits its own state changes
+        // via the individual store/repository methods, so a per-job failure does not affect
+        // any other job.
         Instant now = clock.instant();
         for (PendingCutoffJob job : cutoffJobStore.findDueJobs(now)) {
-            InstallationRecord installation = lifecycleService.findInstallation(job.workspaceId()).orElse(null);
-            if (installation == null || !installation.enforcing()) {
-                cutoffJobStore.deleteByJobId(job.jobId());
-                continue;
+            try {
+                processDueJob(job, now, source);
+            } catch (RuntimeException e) {
+                log.warn("processDueJobs: unexpected error for job {} — continuing with remaining jobs", job.jobId(), e);
             }
+        }
+    }
 
-            ProjectState projectState = projectUsageService.loadProjectState(installation, job.projectId());
-            ProjectUsage usage = projectUsageService.loadProjectUsage(installation, projectState, now);
-            List<RunningTimeEntry> runningEntries = projectUsageService.loadRunningEntries(installation, job.projectId());
-            boolean targetStillRunning = runningEntries.stream()
-                    .anyMatch(entry -> job.timeEntryId().equals(entry.timeEntryId())
-                            && job.userId().equals(entry.userId()));
-            if (!targetStillRunning) {
-                cutoffJobStore.deleteByJobId(job.jobId());
-                continue;
-            }
+    private void processDueJob(PendingCutoffJob job, Instant now, String source) {
+        InstallationRecord installation = lifecycleService.findInstallation(job.workspaceId()).orElse(null);
+        if (installation == null || !installation.enforcing()) {
+            cutoffJobStore.deleteByJobId(job.jobId());
+            return;
+        }
 
-            // Re-assess so user-side changes (unchecked cap, pause, manual stop) short-circuit
-            // before we push any side effects.
-            Assessment assessment = assess(projectState, usage, runningEntries, now, source + ":due-job", null);
-            if (assessment.exceededReason() == null && !assessment.lockNow()) {
-                cutoffJobStore.deleteByJobId(job.jobId());
-                continue;
-            }
+        ProjectState projectState;
+        ProjectUsage usage;
+        List<RunningTimeEntry> runningEntries;
+        try {
+            projectState = projectUsageService.loadProjectState(installation, job.projectId());
+            usage = projectUsageService.loadProjectUsage(installation, projectState, now);
+            runningEntries = projectUsageService.loadRunningEntries(installation, job.projectId());
+        } catch (RuntimeException e) {
+            // Transient Clockify failure; leave the job in place for the next tick.
+            log.warn("processDueJobs: failed to load state for job {} — leaving job for retry", job.jobId(), e);
+            return;
+        }
 
-            GuardReason reason = assessment.exceededReason() != null
-                    ? assessment.exceededReason()
-                    : assessment.plannedReason();
-            // Ownership-confirm delete before the side effect: if another instance already claimed
-            // this job, deleteByJobId returns 0 and we skip.
-            if (cutoffJobStore.deleteByJobId(job.jobId()) == 0) {
-                continue;
-            }
+        boolean targetStillRunning = runningEntries.stream()
+                .anyMatch(entry -> job.timeEntryId().equals(entry.timeEntryId())
+                        && job.userId().equals(entry.userId()));
+        if (!targetStillRunning) {
+            cutoffJobStore.deleteByJobId(job.jobId());
+            return;
+        }
+
+        // Re-assess so user-side changes (unchecked cap, pause, manual stop) short-circuit
+        // before we push any side effects.
+        Assessment assessment = assess(projectState, usage, runningEntries, now, source + ":due-job", null);
+        if (assessment.exceededReason() == null && !assessment.lockNow()) {
+            cutoffJobStore.deleteByJobId(job.jobId());
+            return;
+        }
+
+        GuardReason reason = assessment.exceededReason() != null
+                ? assessment.exceededReason()
+                : assessment.plannedReason();
+
+        // Ownership-confirm delete before the side effect: if another instance already
+        // claimed this job, deleteByJobId returns 0 and we skip.
+        if (cutoffJobStore.deleteByJobId(job.jobId()) == 0) {
+            return;
+        }
+
+        // BUG-11: wrap each side effect so partial failure does not split-brain the project.
+        // If stopRunningTimer fails we reinsert the job so a future tick retries; if
+        // lockProject fails after the timer stopped we log and let the next reconcile tick
+        // catch up, rather than leaving the DB and Clockify in disagreement.
+        try {
             backendApiClient.stopRunningTimer(installation, job.userId(), CLOCKIFY_TIMESTAMP.format(job.cutoffAt()));
-            recordEvent(job.workspaceId(), job.projectId(), GuardEventType.TIMER_STOPPED, reason, source + ":due-job", null);
+        } catch (RuntimeException stopErr) {
+            log.warn("stopRunningTimer failed for job {} — reinserting for retry on next tick", job.jobId(), stopErr);
+            try {
+                cutoffJobStore.save(job);
+            } catch (RuntimeException reinsertErr) {
+                log.warn("Failed to reinsert job {} after stopRunningTimer error; scheduler reconcile will recover", job.jobId(), reinsertErr);
+            }
+            return;
+        }
+        recordEvent(job.workspaceId(), job.projectId(), GuardEventType.TIMER_STOPPED, reason, source + ":due-job", null);
+
+        try {
             projectLockService.lockProject(installation, projectState, reason);
             recordEvent(job.workspaceId(), job.projectId(), GuardEventType.LOCKED, reason, source + ":due-job", null);
+        } catch (RuntimeException lockErr) {
+            log.warn("lockProject failed for job {} after timer stopped — next reconcile tick will retry the lock", job.jobId(), lockErr);
         }
     }
 
