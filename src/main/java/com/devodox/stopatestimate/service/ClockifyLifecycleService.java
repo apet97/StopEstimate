@@ -324,7 +324,9 @@ public class ClockifyLifecycleService {
     }
 
     private void assertMatches(String actual, Optional<String> expected, String label) {
-        if (expected.isPresent() && !expected.get().equals(actual)) {
+        // Fail closed when the claim is missing — a token without the expected claim must not
+        // silently pass the identity check just because the required value was absent.
+        if (expected.isEmpty() || !expected.get().equals(actual)) {
             throw new ClockifyRequestAuthException("Lifecycle token " + label + " mismatch");
         }
     }
