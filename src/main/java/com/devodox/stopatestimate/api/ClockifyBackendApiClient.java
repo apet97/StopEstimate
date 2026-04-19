@@ -7,7 +7,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -24,20 +24,14 @@ public class ClockifyBackendApiClient {
     /** Hard cap on paginated loops so a stuck pagination never OOMs the JVM. */
     private static final int MAX_PAGES = 1000;
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClient restClient;
     private final Gson gson = new Gson();
-    private RestClient restClient;
 
-    public ClockifyBackendApiClient(RestClient.Builder restClientBuilder) {
-        this.restClientBuilder = restClientBuilder;
-    }
-
-    @PostConstruct
-    void init() {
-        // Build a single RestClient per service instance. The underlying JDK HttpClient pools
-        // connections across requests; rebuilding per call (as this code did previously) recreated
-        // sockets on every cron tick and leaked ephemeral ports under load.
-        this.restClient = restClientBuilder.build();
+    public ClockifyBackendApiClient(@Qualifier("clockifyBackendRestClient") RestClient restClient) {
+        // Single RestClient per bean: the underlying HttpClient pools connections across calls.
+        // RES-03: the 30s read timeout is tuned for pagination-heavy endpoints (listProjects,
+        // filterUsers, listInProgressTimeEntries) on large workspaces.
+        this.restClient = restClient;
     }
 
     public JsonObject getProject(InstallationRecord installation, String projectId) {
@@ -269,10 +263,6 @@ public class ClockifyBackendApiClient {
     }
 
     private String exchange(String method, String url, String addonToken, String body) {
-        return exchangeOnce(method, url, addonToken, body, true);
-    }
-
-    private String exchangeOnce(String method, String url, String addonToken, String body, boolean allowRetry) {
         try {
             return switch (method) {
                 case "GET" -> restClient.get()
@@ -304,49 +294,19 @@ public class ClockifyBackendApiClient {
                 default -> throw new IllegalArgumentException("Unsupported method: " + method);
             };
         } catch (RestClientResponseException e) {
-            if (allowRetry && e.getStatusCode().value() == 429) {
-                // Single Retry-After-honoring retry. Cap the sleep so a hostile Retry-After
-                // can't park the thread for minutes; fail through to classify() if we still
-                // get rate-limited on the retry.
-                sleepQuietly(parseRetryAfterMillis(e));
-                return exchangeOnce(method, url, addonToken, body, false);
-            }
             throw classify(e);
         } catch (RuntimeException e) {
             throw new ClockifyApiException("Clockify backend call failed", e);
         }
     }
 
-    private static long parseRetryAfterMillis(RestClientResponseException e) {
-        org.springframework.http.HttpHeaders headers = e.getResponseHeaders();
-        String retryAfter = headers == null ? null : headers.getFirst("Retry-After");
-        long fallbackMs = 1_000L;
-        long capMs = 10_000L;
-        if (retryAfter == null || retryAfter.isBlank()) {
-            return fallbackMs;
-        }
-        try {
-            long seconds = Long.parseLong(retryAfter.trim());
-            return Math.min(capMs, Math.max(0L, seconds) * 1_000L);
-        } catch (NumberFormatException ignored) {
-            return fallbackMs;
-        }
-    }
-
-    private static void sleepQuietly(long millis) {
-        if (millis <= 0L) {
-            return;
-        }
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
     private static RuntimeException classify(RestClientResponseException e) {
         HttpStatusCode status = e.getStatusCode();
         int code = status.value();
+        if (code == 429) {
+            // RES-01: do not sleep inside the shared scheduler pool — let the next tick retry.
+            return new ClockifyApiException("Rate limited by Clockify (429); will retry on next tick", e);
+        }
         if (code == 401) {
             return new com.devodox.stopatestimate.service.ClockifyRequestAuthException(
                     "Clockify backend rejected the installation token", e);

@@ -36,8 +36,8 @@ public class ContextApiController {
         payload.put("workspaceId", context.workspaceId());
         payload.put("addonId", context.addonId());
         payload.put("userId", context.userId());
-        payload.put("backendUrl", context.backendUrl());
-        payload.put("reportsUrl", context.reportsUrl());
+        // RES-06: do NOT expose backendUrl/reportsUrl — the frontend does not consume them, and
+        // leaking Clockify's internal API topology to the iframe is an unnecessary XSS target.
         payload.put("language", context.language());
         payload.put("theme", context.theme());
         payload.put("installed", installation != null);

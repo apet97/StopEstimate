@@ -92,10 +92,19 @@ public class InstallationStore {
 
     @Transactional(readOnly = true)
     public List<InstallationRecord> findAllRecords() {
-        // DB-01: single-query webhook fetch for all workspaces, grouped in memory. The
-        // previous shape issued N+1 SELECTs — one per workspace — via toRecord()'s default
-        // per-workspace query.
-        List<InstallationEntity> entities = installationRepository.findAll();
+        return groupWithWebhooks(installationRepository.findAll());
+    }
+
+    @Transactional(readOnly = true)
+    public List<InstallationRecord> findActiveRecords() {
+        // DB-08: scheduler reconcile loop only needs status=ACTIVE+enabled rows; the partial index
+        // idx_installations_active covers this predicate, so the DB filters instead of the JVM.
+        return groupWithWebhooks(installationRepository.findAllActive());
+    }
+
+    // DB-01: single-query webhook fetch for all workspaces, grouped in memory. The previous shape
+    // issued N+1 SELECTs — one per workspace — via toRecord()'s default per-workspace query.
+    private List<InstallationRecord> groupWithWebhooks(List<InstallationEntity> entities) {
         if (entities.isEmpty()) {
             return List.of();
         }

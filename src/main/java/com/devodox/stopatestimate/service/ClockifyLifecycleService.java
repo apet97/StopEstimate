@@ -213,6 +213,11 @@ public class ClockifyLifecycleService {
         return installationStore.findAllRecords();
     }
 
+    @Transactional(readOnly = true)
+    public Iterable<InstallationRecord> findActiveInstallations() {
+        return installationStore.findActiveRecords();
+    }
+
     private void suppressEnforcement(InstallationRecord installation) {
         cutoffService.cancelWorkspaceJobs(installation.workspaceId());
         projectLockService.unlockWorkspaceProjects(installation);

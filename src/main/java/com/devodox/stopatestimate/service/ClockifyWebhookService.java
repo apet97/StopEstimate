@@ -113,17 +113,17 @@ public class ClockifyWebhookService {
             String workspaceId) {
         String signatureHash = sha256Hex(signature);
         String eventId = extractEventId(eventType, payload).orElse("body:" + sha256Hex(rawBody == null ? "" : rawBody));
-        if (webhookEventRepository.existsByIdEventIdAndIdSignatureHash(eventId, signatureHash)) {
+        // DB-07: go straight to insert. The existsBy pre-check is a read-then-write race — two
+        // concurrent deliveries both pass the existence check, only one commits, the other causes
+        // a spurious transaction rollback. The (event_id, signature_hash) PK makes insert-or-fail
+        // race-proof: on duplicate we catch and return true.
+        try {
+            webhookEventRepository.save(new WebhookEventEntity(eventId, signatureHash, workspaceId));
+            return false;
+        } catch (DataIntegrityViolationException race) {
             log.debug("Webhook dedup hit event={} sigHash={}", eventId, prefix(signatureHash));
             return true;
         }
-        try {
-            webhookEventRepository.save(new WebhookEventEntity(eventId, signatureHash, workspaceId));
-        } catch (DataIntegrityViolationException race) {
-            // Parallel delivery won the insert race — treat as duplicate.
-            return true;
-        }
-        return false;
     }
 
     private Optional<String> extractEventId(String eventType, JsonObject payload) {

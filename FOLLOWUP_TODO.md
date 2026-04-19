@@ -4,7 +4,13 @@ Context: `SONNETTODO.md` is the original 84-finding audit. The first wave (P0+P1
 
 All 71 existing tests pass today. Land each fix below as its own commit; re-run `./mvnw test` after every commit.
 
-**Batch 1 status (2026-04-19):** landed on `main` in commits `2048e36..8a32c57` (7 commits, 71/71 tests green after each). Covered: BUG-03, BUG-04 narrow, BUG-07, BUG-09, RES-09, SEC-06, SEC-08, RES-05, RES-11. Remaining batches (2–6) are still open; see "Execution plan" section at the bottom.
+**Batch 1 status (2026-04-19):** landed on `main` in commits `2048e36..8a32c57` (7 commits, 71/71 tests green after each). Covered: BUG-03, BUG-04 narrow, BUG-07, BUG-09, RES-09, SEC-06, SEC-08, RES-05, RES-11.
+
+**Batch 2 status (2026-04-19):** landed in commit `42dafce`. Covered: RES-01, RES-02, RES-03, RES-04, RES-06. 71/71 tests green.
+
+**Batch 3/4 partial (2026-04-19):** landed in commit `961cc7d`. Covered: DB-07, DB-10, FE-10.
+
+**Batch 3/4 remainder (2026-04-19):** landed in commits `28c99ad..88691b5` (5 commits, 72/72 tests green after each). Covered: BUG-05, DB-06 (+ `V1_0_8` migration), DB-08, DB-09, FE-11. Remaining: Batch 5 (SEC-03 drain, needs staged deploy) and Batch 6 (TEST-01..13 + jacoco/dependency-check).
 
 **DO NOT TOUCH — verified as wrong or by-design:**
 - **SEC-01** (webhook signature check). `ClockifyWebhookService.handleWebhook` already performs full RS256 verification at line 65 via `TokenVerificationService.verifyAndParseClaims`, with `workspaceId`/`addonId` claim checks on lines 69–80, and the per-route `constantTimeEquals` at line 81 is the documented defence-in-depth step #3. The audit misread `verifyStoredWebhookToken` in isolation. Confirmed against canonical-docs `01-canonical-docs/build/manifest/webhooks.md`.
@@ -128,9 +134,9 @@ All 13 TEST-* findings are confirmed. Re-visit the original `SONNETTODO.md` §6 
 Suggested batching (land each batch as one PR, run `./mvnw test` between commits):
 
 - **Batch 1 (correctness — small):** ✅ LANDED (commits `2048e36..8a32c57`). BUG-03, BUG-04 narrow fix, BUG-07, BUG-09, RES-09, SEC-06, SEC-08, RES-05, RES-11. 71/71 tests green after each commit.
-- **Batch 2 (resilience — medium):** RES-01, RES-02, RES-03, RES-04, RES-06. ~0.5 day.
-- **Batch 3 (DB housekeeping):** BUG-05 (ON CONFLICT upsert), DB-06 (retention + new migration V1_0_8), DB-07, DB-08, DB-09, DB-10. ~1 day.
-- **Batch 4 (accessibility + UI):** FE-10, FE-11. ~0.5 day.
+- **Batch 2 (resilience — medium):** ✅ LANDED (commit `42dafce`). RES-01, RES-02, RES-03, RES-04, RES-06.
+- **Batch 3 (DB housekeeping):** ✅ LANDED (commits `961cc7d`, `28c99ad`, `69587fb`, `8a110cf`, `983ab34`). BUG-05, DB-06 (+ V1_0_8 migration), DB-07, DB-08, DB-09, DB-10.
+- **Batch 4 (accessibility + UI):** ✅ LANDED (commits `961cc7d`, `88691b5`). FE-10, FE-11.
 - **Batch 5 (SEC-03 finalisation):** re-encrypt job + fallback removal, staged over two deploys. ~0.5 day + deploy windows.
 - **Batch 6 (tests — biggest gap):** TEST-01..13 in the priority order above. 2–3 days.
 

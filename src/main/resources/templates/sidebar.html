@@ -142,7 +142,7 @@
                 <h1 th:text="${addonName}">Stop @ Estimate</h1>
                 <p>Operational dashboard for workspace mode, guarded projects, current lock state, and manual reconcile.</p>
             </div>
-            <span class="status-pill" id="mode-pill">Initializing</span>
+            <span class="status-pill" id="mode-pill" role="status" aria-live="polite">Initializing</span>
         </div>
     </section>
 
@@ -162,9 +162,9 @@
                 <h2>Guarded Projects</h2>
                 <p class="muted">Projects with active caps, active lock state, or pending cutoff work.</p>
             </div>
-            <button class="button button--primary" id="reconcile-button" type="button">Manual Reconcile</button>
+            <button class="button button--primary" id="reconcile-button" type="button" aria-describedby="status-line">Manual Reconcile</button>
         </div>
-        <div class="status" id="status-line">Initializing sidebar...</div>
+        <div class="status" id="status-line" role="status" aria-live="polite" aria-atomic="true">Initializing sidebar...</div>
         <div id="projects-empty" class="empty" style="display:none; margin-top: 12px;">No guarded projects are currently active for this workspace.</div>
         <div class="table-wrap" style="margin-top: 12px;">
             <table id="projects-table" style="display:none;">
@@ -183,6 +183,24 @@
                 <tbody id="projects-body"></tbody>
             </table>
         </div>
+        <details id="events-panel" class="events-panel" style="margin-top: 16px;">
+            <summary>Recent events</summary>
+            <div class="table-wrap" style="margin-top: 12px;">
+                <table id="events-table" style="display:none;">
+                    <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Event</th>
+                        <th>Reason</th>
+                        <th>Source</th>
+                        <th>Project</th>
+                    </tr>
+                    </thead>
+                    <tbody id="events-body"></tbody>
+                </table>
+                <div id="events-empty" class="empty" style="display:none;">No recent events for this workspace.</div>
+            </div>
+        </details>
     </section>
 </div>
 <script src="/js/sidebar.js"></script>
