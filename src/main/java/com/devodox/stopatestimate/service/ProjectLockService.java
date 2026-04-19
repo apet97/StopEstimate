@@ -66,17 +66,27 @@ public class ProjectLockService {
                         reason.name(),
                         clock.instant());
 
-        backendApiClient.updateProjectVisibility(installation, projectState.projectId(), false);
+        // Resolve allowed members BEFORE writing the snapshot so a read-side failure here
+        // leaves no DB state behind. Once the snapshot lands we are committed to the lock
+        // attempt and any partial mutation below must be recoverable via unlockProject.
         List<com.devodox.stopatestimate.model.ProjectMemberAccess> allowedMembers =
                 accessResolutionService.resolveAllowedMembers(installation, projectState);
+
+        // SEC-02: save the snapshot BEFORE any Clockify mutation. If a mutation below fails
+        // partway (e.g. visibility succeeds but memberships throw), a future reconcile must
+        // still be able to find originalPublic/originalMembers to restore. Previously the
+        // snapshot was written last, so a mid-lock crash permanently split-brained the
+        // project: Clockify saw it as private, our DB saw it as unlocked, unlockProject
+        // short-circuited, and nothing ever restored it.
+        lockSnapshotStore.save(snapshot);
+
+        backendApiClient.updateProjectVisibility(installation, projectState.projectId(), false);
         try {
             backendApiClient.updateProjectMemberships(installation, projectState.projectId(), allowedMembers, List.of());
         } catch (ClockifyApiException e) {
             log.warn("Project membership group clear failed for {}. Falling back to direct members only.", projectState.projectId(), e);
             backendApiClient.updateProjectMemberships(installation, projectState.projectId(), allowedMembers, null);
         }
-
-        lockSnapshotStore.save(snapshot);
     }
 
     @Transactional
