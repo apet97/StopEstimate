@@ -91,6 +91,69 @@ class ProjectUsageServiceTest {
         assertThat(service.extractSummaryBillable(summary)).isEqualByComparingTo("15");
     }
 
+    // ----- TEST-12: extractSummaryTotalTime numeric, ISO-8601, multi-entry, and empty cases -----
+
+    @Test
+    void totalTimeNumericSecondsIsReturnedAsMilliseconds() {
+        // Clockify reports totalTime in seconds; 3600s = 1h = 3_600_000ms.
+        JsonObject summary = summaryWithTotalTime(3600);
+
+        assertThat(service.extractSummaryTotalTime(summary)).isEqualTo(3_600_000L);
+    }
+
+    @Test
+    void totalTimeIso8601StringIsParsedAsDuration() {
+        // PT1H = 3,600,000 ms; the code round-trips through durationMillis and divides by 1000.
+        JsonObject summary = summaryWithTotalTime("PT1H");
+
+        assertThat(service.extractSummaryTotalTime(summary)).isEqualTo(3_600_000L);
+    }
+
+    @Test
+    void totalTimeSumsAcrossMultipleTotalsEntries() {
+        JsonArray totals = new JsonArray();
+        totals.add(totalsObj(60));   // 60s
+        totals.add(totalsObj(90));   // 90s
+        JsonObject summary = new JsonObject();
+        summary.add("totals", totals);
+
+        // 150s = 150_000 ms.
+        assertThat(service.extractSummaryTotalTime(summary)).isEqualTo(150_000L);
+    }
+
+    @Test
+    void missingOrEmptyTotalsYieldsZero() {
+        assertThat(service.extractSummaryTotalTime(new JsonObject())).isZero();
+
+        JsonObject withEmptyTotals = new JsonObject();
+        withEmptyTotals.add("totals", new JsonArray());
+        assertThat(service.extractSummaryTotalTime(withEmptyTotals)).isZero();
+    }
+
+    private static JsonObject summaryWithTotalTime(long seconds) {
+        JsonArray totals = new JsonArray();
+        totals.add(totalsObj(seconds));
+        JsonObject summary = new JsonObject();
+        summary.add("totals", totals);
+        return summary;
+    }
+
+    private static JsonObject summaryWithTotalTime(String iso8601) {
+        JsonObject totalsEntry = new JsonObject();
+        totalsEntry.addProperty("totalTime", iso8601);
+        JsonArray totals = new JsonArray();
+        totals.add(totalsEntry);
+        JsonObject summary = new JsonObject();
+        summary.add("totals", totals);
+        return summary;
+    }
+
+    private static JsonObject totalsObj(long seconds) {
+        JsonObject entry = new JsonObject();
+        entry.addProperty("totalTime", seconds);
+        return entry;
+    }
+
     private static JsonObject summaryWithAmount(String type, String value) {
         JsonObject amount = new JsonObject();
         amount.addProperty("type", type);
