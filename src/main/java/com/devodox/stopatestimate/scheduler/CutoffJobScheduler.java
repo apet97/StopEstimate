@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -40,6 +41,8 @@ public class CutoffJobScheduler {
         }
     }
 
+    // DB-10: wrap the delete + log in a single transaction so the lock/txn boundaries align.
+    @Transactional
     @Scheduled(cron = "${clockify.cutoff.webhook-cleanup-cron:0 0 * * * *}")
     @SchedulerLock(name = "CutoffJobScheduler.cleanupWebhookEvents", lockAtMostFor = "PT5M", lockAtLeastFor = "PT1M")
     public void cleanupWebhookEvents() {
