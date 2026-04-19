@@ -4,135 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title th:text="${addonName}">Stop @ Estimate</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: linear-gradient(180deg, #eef4f8 0%, #f8fbfd 100%);
-            color: #12212f;
-            padding: 16px;
-        }
-        body.theme-dark {
-            background: linear-gradient(180deg, #0d1a24 0%, #132533 100%);
-            color: #eef6fb;
-        }
-        .stack {
-            display: grid;
-            gap: 14px;
-        }
-        .panel {
-            background: rgba(255, 255, 255, 0.94);
-            border: 1px solid rgba(18, 33, 47, 0.08);
-            border-radius: 16px;
-            padding: 16px;
-            box-shadow: 0 14px 34px rgba(18, 33, 47, 0.08);
-        }
-        body.theme-dark .panel {
-            background: rgba(17, 33, 45, 0.86);
-            border-color: rgba(238, 246, 251, 0.09);
-            box-shadow: none;
-        }
-        .hero {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            align-items: flex-start;
-        }
-        .hero p, .muted {
-            margin: 0;
-            opacity: 0.78;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 12px;
-        }
-        .metric {
-            padding: 12px;
-            border-radius: 12px;
-            background: rgba(18, 33, 47, 0.04);
-        }
-        body.theme-dark .metric {
-            background: rgba(238, 246, 251, 0.06);
-        }
-        .metric-label {
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            opacity: 0.68;
-            display: block;
-            margin-bottom: 4px;
-        }
-        .metric-value {
-            font-size: 13px;
-            word-break: break-word;
-        }
-        .toolbar {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-        }
-        .status-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 10px;
-            border-radius: 999px;
-            background: rgba(35, 135, 97, 0.12);
-            color: #237f5c;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .status-pill.warn {
-            background: rgba(193, 113, 37, 0.12);
-            color: #b26a20;
-        }
-        body.theme-dark .status-pill {
-            background: rgba(71, 181, 131, 0.18);
-            color: #9dd9bc;
-        }
-        body.theme-dark .status-pill.warn {
-            background: rgba(210, 151, 78, 0.18);
-            color: #efc085;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-        th, td {
-            text-align: left;
-            padding: 10px 8px;
-            border-bottom: 1px solid rgba(18, 33, 47, 0.08);
-            vertical-align: top;
-        }
-        body.theme-dark th, body.theme-dark td {
-            border-bottom-color: rgba(238, 246, 251, 0.08);
-        }
-        th {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            opacity: 0.7;
-        }
-        .table-wrap {
-            overflow-x: auto;
-        }
-        .empty {
-            padding: 14px;
-            border-radius: 12px;
-            background: rgba(18, 33, 47, 0.03);
-            font-size: 13px;
-        }
-        body.theme-dark .empty {
-            background: rgba(238, 246, 251, 0.05);
-        }
-        .status {
-            font-size: 12px;
-            opacity: 0.84;
-        }
-    </style>
+    <link rel="stylesheet" href="/css/sidebar.css">
 </head>
 <body>
 <div class="stack">
@@ -165,9 +37,9 @@
             <button class="button button--primary" id="reconcile-button" type="button" aria-describedby="status-line">Manual Reconcile</button>
         </div>
         <div class="status" id="status-line" role="status" aria-live="polite" aria-atomic="true">Initializing sidebar...</div>
-        <div id="projects-empty" class="empty" style="display:none; margin-top: 12px;">No guarded projects are currently active for this workspace.</div>
-        <div class="table-wrap" style="margin-top: 12px;">
-            <table id="projects-table" style="display:none;">
+        <div id="projects-empty" class="empty mt-12">No guarded projects are currently active for this workspace.</div>
+        <div class="table-wrap mt-12">
+            <table id="projects-table">
                 <thead>
                 <tr>
                     <th>Project</th>
@@ -183,10 +55,10 @@
                 <tbody id="projects-body"></tbody>
             </table>
         </div>
-        <details id="events-panel" class="events-panel" style="margin-top: 16px;">
+        <details id="events-panel" class="events-panel mt-16">
             <summary>Recent events</summary>
-            <div class="table-wrap" style="margin-top: 12px;">
-                <table id="events-table" style="display:none;">
+            <div class="table-wrap mt-12">
+                <table id="events-table">
                     <thead>
                     <tr>
                         <th>When</th>
@@ -198,7 +70,7 @@
                     </thead>
                     <tbody id="events-body"></tbody>
                 </table>
-                <div id="events-empty" class="empty" style="display:none;">No recent events for this workspace.</div>
+                <div id="events-empty" class="empty">No recent events for this workspace.</div>
             </div>
         </details>
     </section>

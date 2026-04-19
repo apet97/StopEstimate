@@ -150,7 +150,7 @@ public class InstallationStore {
         AddonStatus status;
         try {
             status = AddonStatus.valueOf(entity.getStatus());
-        } catch (Exception e) {
+        } catch (IllegalArgumentException | NullPointerException e) {
             status = AddonStatus.ACTIVE;
         }
         // BUG-10: use the injected Clock so tests get deterministic installedAt values.

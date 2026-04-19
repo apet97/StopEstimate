@@ -152,12 +152,12 @@ public class SecurityConfig {
                         .contentTypeOptions(opts -> {})
                         .contentSecurityPolicy(csp -> csp.policyDirectives(
                                 // Sidebar renders inside Clockify's iframe; frame-ancestors pins the
-                                // parent origin. style-src 'unsafe-inline' covers the inline <style>
-                                // block in sidebar.html (P2 TODO: move to external CSS).
+                                // parent origin. All sidebar styles live in /css/sidebar.css so
+                                // style-src can stay strict ('self' only).
                                 "default-src 'self'; "
                                         + "frame-ancestors https://*.clockify.me; "
                                         + "img-src 'self' data:; "
-                                        + "style-src 'self' 'unsafe-inline'; "
+                                        + "style-src 'self'; "
                                         + "script-src 'self'; "
                                         + "connect-src 'self' https://*.clockify.me"))
                         .httpStrictTransportSecurity(hsts -> hsts

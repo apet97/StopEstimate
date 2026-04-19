@@ -36,8 +36,10 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class EstimateGuardService {
@@ -181,9 +183,16 @@ public class EstimateGuardService {
             return List.of();
         }
 
+        // Bulk-load lock snapshots once per workspace; otherwise summarizeProject would
+        // hit the DB once per project on top of the existing per-project Clockify calls.
+        Map<String, ProjectLockSnapshot> snapshotsByProject = projectLockService.findSnapshots(installation.workspaceId())
+                .stream()
+                .collect(Collectors.toMap(ProjectLockSnapshot::projectId, s -> s, (a, b) -> a));
+
         List<ProjectGuardSummary> summaries = new ArrayList<>();
         for (String projectId : knownProjectIds(installation)) {
-            ProjectGuardSummary summary = summarizeProject(installation, projectId);
+            ProjectGuardSummary summary = summarizeProject(
+                    installation, projectId, Optional.ofNullable(snapshotsByProject.get(projectId)));
             if (summary == null) {
                 continue;
             }
@@ -320,7 +329,8 @@ public class EstimateGuardService {
         cutoffJobStore.deleteByWorkspaceId(workspaceId);
     }
 
-    private ProjectGuardSummary summarizeProject(InstallationRecord installation, String projectId) {
+    private ProjectGuardSummary summarizeProject(
+            InstallationRecord installation, String projectId, Optional<ProjectLockSnapshot> snapshot) {
         // BUG-08: capture `now` once. Previously clock.instant() was called twice and the
         // HTTP latency of loadRunningEntries/loadProjectUsage was being counted as elapsed
         // running time in `assess`, which pushed cutoffAt earlier than it should be.
@@ -330,7 +340,6 @@ public class EstimateGuardService {
         ProjectUsage usage = projectUsageService.loadProjectUsage(installation, projectState, now);
         List<RunningTimeEntry> runningEntries = projectUsageService.loadRunningEntries(installation, projectId);
         Assessment assessment = assess(projectState, usage, runningEntries, now, "summary", null);
-        Optional<ProjectLockSnapshot> snapshot = projectLockService.findSnapshot(installation.workspaceId(), projectId);
 
         boolean activeCaps = caps != null && caps.hasActiveCaps();
         String status;
