@@ -13,6 +13,7 @@ import com.devodox.stopatestimate.model.RateInfo;
 import com.devodox.stopatestimate.model.ResetWindow;
 import com.devodox.stopatestimate.model.ResetWindowSchedule;
 import com.devodox.stopatestimate.model.RunningTimeEntry;
+import com.devodox.stopatestimate.model.ProjectGuardSummary;
 import com.devodox.stopatestimate.model.entity.GuardEventEntity;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.service.ClockifyLifecycleService;
@@ -30,6 +31,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -658,6 +660,148 @@ class EstimateGuardServiceTest {
         verify(projectLockService, never()).lockProject(any(), any(), any());
         verify(backendApiClient, never()).stopRunningTimer(any(), anyString(), anyString());
         verify(cutoffJobStore).deleteByProject("ws-1", "project-1");
+    }
+
+    // ----- listProjectSummaries: workspace-wide running-entries batching (N+1 fix) -----
+
+    // Regression guard: previously summarizeProject called loadRunningEntries per project, each
+    // of which fired GET /time-entries/status/in-progress against the whole workspace and filtered
+    // in memory. For N guarded projects that was N identical HTTP requests per sidebar render.
+    // The fix routes summarizeProject through a single loadRunningEntriesByProject call.
+    @Test
+    void listProjectSummaries_fetchesRunningEntriesOncePerInvocation() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+
+        JsonObject projectA = new JsonObject();
+        projectA.addProperty("id", "project-A");
+        JsonObject projectB = new JsonObject();
+        projectB.addProperty("id", "project-B");
+        when(backendApiClient.listProjects(any())).thenReturn(List.of(projectA, projectB));
+        when(projectLockService.findSnapshots("ws-1")).thenReturn(List.of());
+        when(cutoffJobStore.findByWorkspaceId("ws-1")).thenReturn(List.of());
+
+        when(projectUsageService.loadProjectState(any(), eq("project-A")))
+                .thenReturn(projectStateFor("project-A"));
+        when(projectUsageService.loadProjectState(any(), eq("project-B")))
+                .thenReturn(projectStateFor("project-B"));
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntriesByProject(any())).thenReturn(Map.of(
+                "project-A", List.of(
+                        new RunningTimeEntry("ws-1", "project-A", "user-1", "te-A1", fixedClock.instant(), true),
+                        new RunningTimeEntry("ws-1", "project-A", "user-2", "te-A2", fixedClock.instant(), true)),
+                "project-B", List.of(
+                        new RunningTimeEntry("ws-1", "project-B", "user-3", "te-B1", fixedClock.instant(), true))));
+
+        service.listProjectSummaries("ws-1");
+
+        verify(projectUsageService, times(1)).loadRunningEntriesByProject(any());
+        // Per-project fetch is obsolete in the summary path — the whole point of the batch is
+        // to stop hitting listInProgressTimeEntries N times. If this fires, we regressed.
+        verify(projectUsageService, never()).loadRunningEntries(any(), anyString());
+    }
+
+    // Correctness: running entries must be attributed to their own project. When project A and
+    // project B both have concurrent timers, A's count must not include B's entries and vice
+    // versa. Catches a class of bug where a map-routing refactor accidentally spreads one
+    // project's list across all projects.
+    @Test
+    void listProjectSummaries_attributesRunningEntriesToCorrectProject() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+
+        JsonObject projectA = new JsonObject();
+        projectA.addProperty("id", "project-A");
+        JsonObject projectB = new JsonObject();
+        projectB.addProperty("id", "project-B");
+        when(backendApiClient.listProjects(any())).thenReturn(List.of(projectA, projectB));
+        when(projectLockService.findSnapshots("ws-1")).thenReturn(List.of());
+        when(cutoffJobStore.findByWorkspaceId("ws-1")).thenReturn(List.of());
+
+        when(projectUsageService.loadProjectState(any(), eq("project-A")))
+                .thenReturn(projectStateFor("project-A"));
+        when(projectUsageService.loadProjectState(any(), eq("project-B")))
+                .thenReturn(projectStateFor("project-B"));
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntriesByProject(any())).thenReturn(Map.of(
+                "project-A", List.of(
+                        new RunningTimeEntry("ws-1", "project-A", "user-1", "te-A1", fixedClock.instant(), true),
+                        new RunningTimeEntry("ws-1", "project-A", "user-2", "te-A2", fixedClock.instant(), true)),
+                "project-B", List.of(
+                        new RunningTimeEntry("ws-1", "project-B", "user-3", "te-B1", fixedClock.instant(), true))));
+
+        List<ProjectGuardSummary> summaries = service.listProjectSummaries("ws-1");
+
+        ProjectGuardSummary a = summaries.stream().filter(s -> "project-A".equals(s.projectId())).findFirst().orElseThrow();
+        ProjectGuardSummary b = summaries.stream().filter(s -> "project-B".equals(s.projectId())).findFirst().orElseThrow();
+        assertThat(a.runningEntryCount()).isEqualTo(2);
+        assertThat(b.runningEntryCount()).isEqualTo(1);
+    }
+
+    // A project that happens to have no in-progress timers must still get a summary — the
+    // map-lookup has to fall back to an empty list, not throw NPE. Previously loadRunningEntries
+    // always returned a (possibly empty) list for any projectId; the batch map omits keys with
+    // no entries, so the fallback needs a getOrDefault.
+    @Test
+    void listProjectSummaries_projectWithoutRunningEntriesStillSummarized() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+
+        JsonObject projectA = new JsonObject();
+        projectA.addProperty("id", "project-A");
+        when(backendApiClient.listProjects(any())).thenReturn(List.of(projectA));
+        when(projectLockService.findSnapshots("ws-1")).thenReturn(List.of());
+        when(cutoffJobStore.findByWorkspaceId("ws-1")).thenReturn(List.of());
+
+        when(projectUsageService.loadProjectState(any(), eq("project-A")))
+                .thenReturn(projectStateFor("project-A"));
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L, BigDecimal.ZERO, BigDecimal.ZERO));
+        // Empty map — project-A has no running timers.
+        when(projectUsageService.loadRunningEntriesByProject(any())).thenReturn(Map.of());
+
+        List<ProjectGuardSummary> summaries = service.listProjectSummaries("ws-1");
+
+        assertThat(summaries).hasSize(1);
+        assertThat(summaries.get(0).projectId()).isEqualTo("project-A");
+        assertThat(summaries.get(0).runningEntryCount()).isZero();
+    }
+
+    // Reconcile path regression: single-project reconcileProject must still call the per-project
+    // loadRunningEntries API, not the batch. The batch exists only for the sidebar; using it from
+    // the reconcile hot path would fetch every workspace running entry on every webhook tick.
+    @Test
+    void reconcileProject_usesPerProjectLoadRunningEntries_notBatch() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectState());
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                0L, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of());
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIME_ENTRY", new JsonObject());
+
+        verify(projectUsageService, times(1)).loadRunningEntries(any(), eq("project-1"));
+        verify(projectUsageService, never()).loadRunningEntriesByProject(any());
+    }
+
+    private ProjectState projectStateFor(String projectId) {
+        return new ProjectState(
+                "ws-1",
+                projectId,
+                projectId,
+                true,
+                List.of(),
+                List.of(),
+                RateInfo.of(BigDecimal.valueOf(1000), "USD"),
+                RateInfo.empty(),
+                new ProjectCaps(true, 7_200_000L, "MONTHLY", false, true, BigDecimal.valueOf(50_000), "MONTHLY", false, ResetWindowSchedule.none()));
     }
 
     @Test

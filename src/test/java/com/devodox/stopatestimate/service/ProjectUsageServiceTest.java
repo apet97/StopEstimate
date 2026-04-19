@@ -2,7 +2,10 @@ package com.devodox.stopatestimate.service;
 
 import com.devodox.stopatestimate.api.ClockifyBackendApiClient;
 import com.devodox.stopatestimate.api.ClockifyReportsApiClient;
+import com.devodox.stopatestimate.model.AddonStatus;
+import com.devodox.stopatestimate.model.InstallationRecord;
 import com.devodox.stopatestimate.model.ResetWindow;
+import com.devodox.stopatestimate.model.RunningTimeEntry;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,8 +14,13 @@ import org.mockito.Mockito;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Regression guard for the summary-report body: the service must NOT request {@code amounts} /
@@ -23,11 +31,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ProjectUsageServiceTest {
 
     private ProjectUsageService service;
+    private ClockifyBackendApiClient backendApiClient;
 
     @BeforeEach
     void setUp() {
+        backendApiClient = Mockito.mock(ClockifyBackendApiClient.class);
         service = new ProjectUsageService(
-                Mockito.mock(ClockifyBackendApiClient.class),
+                backendApiClient,
                 Mockito.mock(ClockifyReportsApiClient.class),
                 Mockito.mock(ClockifyResetWindowPlanner.class));
     }
@@ -152,6 +162,95 @@ class ProjectUsageServiceTest {
         JsonObject entry = new JsonObject();
         entry.addProperty("totalTime", seconds);
         return entry;
+    }
+
+    // ----- loadRunningEntriesByProject: batch workspace-wide running entries -----
+
+    @Test
+    void loadRunningEntriesByProject_makesExactlyOneBackendCall() {
+        // Regression guard for the N+1 fix: previously callers looped loadRunningEntries per
+        // project, which fetched the same workspace-wide list once per project and filtered in
+        // memory. The batch method must hit the backend exactly once regardless of how many
+        // projects the caller needs.
+        when(backendApiClient.listInProgressTimeEntries(Mockito.any()))
+                .thenReturn(List.of(
+                        runningEntryJson("project-A", "user-1", "te-1", true),
+                        runningEntryJson("project-B", "user-2", "te-2", false),
+                        runningEntryJson("project-A", "user-3", "te-3", true)));
+
+        Map<String, List<RunningTimeEntry>> byProject = service.loadRunningEntriesByProject(fakeInstallation());
+
+        verify(backendApiClient, times(1)).listInProgressTimeEntries(Mockito.any());
+        assertThat(byProject).containsOnlyKeys("project-A", "project-B");
+    }
+
+    @Test
+    void loadRunningEntriesByProject_routesEntriesToCorrectProject() {
+        // Correctness check: entries for project A must not be attributed to project B even
+        // when both projects have concurrent in-progress timers. Verifies the grouping is
+        // keyed on the entry's own projectId, not any ambient state.
+        when(backendApiClient.listInProgressTimeEntries(Mockito.any()))
+                .thenReturn(List.of(
+                        runningEntryJson("project-A", "user-1", "te-A1", true),
+                        runningEntryJson("project-B", "user-2", "te-B1", false),
+                        runningEntryJson("project-A", "user-3", "te-A2", false)));
+
+        Map<String, List<RunningTimeEntry>> byProject = service.loadRunningEntriesByProject(fakeInstallation());
+
+        assertThat(byProject.get("project-A"))
+                .extracting(RunningTimeEntry::timeEntryId)
+                .containsExactly("te-A1", "te-A2");
+        assertThat(byProject.get("project-B"))
+                .extracting(RunningTimeEntry::timeEntryId)
+                .containsExactly("te-B1");
+        // Sanity: billable flag is parsed per entry, not per project.
+        assertThat(byProject.get("project-A").get(0).billable()).isTrue();
+        assertThat(byProject.get("project-A").get(1).billable()).isFalse();
+    }
+
+    @Test
+    void loadRunningEntriesByProject_dropsEntriesWithoutProjectId() {
+        when(backendApiClient.listInProgressTimeEntries(Mockito.any()))
+                .thenReturn(List.of(
+                        runningEntryJson(null, "user-1", "te-orphan", false),
+                        runningEntryJson("project-A", "user-2", "te-A1", true)));
+
+        Map<String, List<RunningTimeEntry>> byProject = service.loadRunningEntriesByProject(fakeInstallation());
+
+        assertThat(byProject).containsOnlyKeys("project-A");
+    }
+
+    private static JsonObject runningEntryJson(String projectId, String userId, String id, boolean billable) {
+        JsonObject obj = new JsonObject();
+        if (projectId != null) {
+            obj.addProperty("projectId", projectId);
+        }
+        obj.addProperty("userId", userId);
+        obj.addProperty("id", id);
+        obj.addProperty("billable", billable);
+        JsonObject interval = new JsonObject();
+        interval.addProperty("start", "2026-04-18T09:00:00Z");
+        obj.add("timeInterval", interval);
+        return obj;
+    }
+
+    private static InstallationRecord fakeInstallation() {
+        Instant now = Instant.parse("2026-04-18T10:00:00Z");
+        return new InstallationRecord(
+                "ws-1",
+                "addon-123",
+                "addon-user",
+                "owner-user",
+                "installation-token",
+                "https://api.clockify.me/api",
+                "https://reports.api.clockify.me",
+                Map.of(),
+                AddonStatus.ACTIVE,
+                true,
+                "ENFORCE",
+                "MONTHLY",
+                now,
+                now);
     }
 
     private static JsonObject summaryWithAmount(String type, String value) {

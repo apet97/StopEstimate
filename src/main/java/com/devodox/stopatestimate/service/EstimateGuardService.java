@@ -189,10 +189,21 @@ public class EstimateGuardService {
                 .stream()
                 .collect(Collectors.toMap(ProjectLockSnapshot::projectId, s -> s, (a, b) -> a));
 
+        // PERF: the in-progress-timers endpoint is workspace-scoped. Previously summarizeProject
+        // fetched it once per project and filtered in-memory, so a workspace with N guarded
+        // projects made N identical HTTP requests. Fetch once, group by projectId, pass the
+        // per-project slice into summarizeProject. Freshness invariant from BUG-08 is preserved —
+        // `now` is still captured inside summarizeProject before the assessment math runs.
+        Map<String, List<RunningTimeEntry>> runningEntriesByProject =
+                projectUsageService.loadRunningEntriesByProject(installation);
+
         List<ProjectGuardSummary> summaries = new ArrayList<>();
         for (String projectId : knownProjectIds(installation)) {
             ProjectGuardSummary summary = summarizeProject(
-                    installation, projectId, Optional.ofNullable(snapshotsByProject.get(projectId)));
+                    installation,
+                    projectId,
+                    Optional.ofNullable(snapshotsByProject.get(projectId)),
+                    runningEntriesByProject.getOrDefault(projectId, List.of()));
             if (summary == null) {
                 continue;
             }
@@ -330,7 +341,10 @@ public class EstimateGuardService {
     }
 
     private ProjectGuardSummary summarizeProject(
-            InstallationRecord installation, String projectId, Optional<ProjectLockSnapshot> snapshot) {
+            InstallationRecord installation,
+            String projectId,
+            Optional<ProjectLockSnapshot> snapshot,
+            List<RunningTimeEntry> runningEntries) {
         // BUG-08: capture `now` once. Previously clock.instant() was called twice and the
         // HTTP latency of loadRunningEntries/loadProjectUsage was being counted as elapsed
         // running time in `assess`, which pushed cutoffAt earlier than it should be.
@@ -338,7 +352,6 @@ public class EstimateGuardService {
         ProjectState projectState = projectUsageService.loadProjectState(installation, projectId);
         ProjectCaps caps = projectState.caps();
         ProjectUsage usage = projectUsageService.loadProjectUsage(installation, projectState, now);
-        List<RunningTimeEntry> runningEntries = projectUsageService.loadRunningEntries(installation, projectId);
         Assessment assessment = assess(projectState, usage, runningEntries, now, "summary", null);
 
         boolean activeCaps = caps != null && caps.hasActiveCaps();
