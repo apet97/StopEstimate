@@ -30,7 +30,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: stop_at_estimate
       # Both must be supplied from the shell env; the app rejects checked-in example values.
       APP_ENCRYPTION_KEY_HEX: ${APP_ENCRYPTION_KEY_HEX:?set APP_ENCRYPTION_KEY_HEX via `openssl rand -hex 32`}
-      APP_ENCRYPTION_SALT_HEX: ${APP_ENCRYPTION_SALT_HEX:?set APP_ENCRYPTION_SALT_HEX via `openssl rand -hex 16`}
+      APP_ENCRYPTION_SALT_HEX: ${APP_ENCRYPTION_SALT_HEX:?set APP_ENCRYPTION_SALT_HEX via `openssl rand -hex 32`}
       CLOCKIFY_CUTOFF_INTERVAL_MS: "60000"
     ports:
       - "127.0.0.1:8080:8080"

@@ -23,7 +23,7 @@ addon:
   # Test-only hex values; distinct from any checked-in example to satisfy the
   # SecurityConfig anti-default guard.
   encryption-key-hex: deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
-  encryption-salt-hex: cafebabecafebabecafebabecafebabe
+  encryption-salt-hex: cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe
 
 clockify:
   cutoff:

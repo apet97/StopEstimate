@@ -69,9 +69,10 @@ public class SecurityConfig {
             throw new IllegalStateException(
                     "addon.encryption-key-hex must contain only hex characters (0-9, a-f, A-F)");
         }
-        if (salt.length() < 32) {
+        if (salt.length() < 64) {
             throw new IllegalStateException(
-                    "addon.encryption-salt-hex must be a hex string of at least 32 characters");
+                    "addon.encryption-salt-hex must be a hex string of at least 64 characters "
+                            + "(256 bits, matching the encryption key length)");
         }
         if (!HEX_PATTERN.matcher(salt).matches()) {
             throw new IllegalStateException(

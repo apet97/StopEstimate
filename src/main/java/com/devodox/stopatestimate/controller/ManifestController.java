@@ -22,9 +22,15 @@ public class ManifestController {
     }
 
     @GetMapping(value = "/manifest", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<String> manifest() throws JsonProcessingException {
+    public ResponseEntity<String> manifest() {
         JsonNode node = objectMapper.valueToTree(manifest);
         ManifestJsonSanitizer.stripEmptyArrays(node);
-        return ResponseEntity.ok(objectMapper.writeValueAsString(node));
+        try {
+            return ResponseEntity.ok(objectMapper.writeValueAsString(node));
+        } catch (JsonProcessingException e) {
+            // Spring MVC does not route checked exceptions through @ExceptionHandler;
+            // wrap in an unchecked so GlobalExceptionHandler can map this to 500.
+            throw new IllegalStateException("Failed to serialize manifest", e);
+        }
     }
 }
