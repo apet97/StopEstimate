@@ -36,6 +36,24 @@ public interface CutoffJobRepository extends JpaRepository<CutoffJobEntity, Stri
 
     @Modifying
     @Transactional
+    @Query(value = """
+            INSERT INTO cutoff_jobs (job_id, workspace_id, project_id, user_id, time_entry_id, cutoff_at, created_at, version)
+            VALUES (:jobId, :workspaceId, :projectId, :userId, :timeEntryId, :cutoffAt, NOW(), 0)
+            ON CONFLICT ON CONSTRAINT uk_cutoff_jobs_workspace_time_entry
+            DO UPDATE SET project_id = EXCLUDED.project_id,
+                          user_id    = EXCLUDED.user_id,
+                          cutoff_at  = EXCLUDED.cutoff_at,
+                          version    = cutoff_jobs.version + 1
+            """, nativeQuery = true)
+    int upsertByWorkspaceAndTimeEntry(@Param("jobId") String jobId,
+                                      @Param("workspaceId") String workspaceId,
+                                      @Param("projectId") String projectId,
+                                      @Param("userId") String userId,
+                                      @Param("timeEntryId") String timeEntryId,
+                                      @Param("cutoffAt") Instant cutoffAt);
+
+    @Modifying
+    @Transactional
     @Query("delete from CutoffJobEntity j where j.workspaceId = :workspaceId")
     void deleteAllByWorkspaceId(@Param("workspaceId") String workspaceId);
 

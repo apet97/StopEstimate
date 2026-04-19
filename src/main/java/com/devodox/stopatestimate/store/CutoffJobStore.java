@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Component
 public class CutoffJobStore {
@@ -34,6 +35,18 @@ public class CutoffJobStore {
         entity.setCutoffAt(job.cutoffAt());
         entity.setCreatedAt(job.createdAt());
         repository.save(entity);
+    }
+
+    @Transactional
+    public PendingCutoffJob upsert(String workspaceId, String projectId, String userId, String timeEntryId, Instant cutoffAt) {
+        // Atomic (workspace_id, time_entry_id) upsert backed by uk_cutoff_jobs_workspace_time_entry.
+        // A candidate jobId is used only for net-new rows; existing rows keep their original PK.
+        String candidateJobId = UUID.randomUUID().toString();
+        repository.upsertByWorkspaceAndTimeEntry(candidateJobId, workspaceId, projectId, userId, timeEntryId, cutoffAt);
+        return repository.findFirstByWorkspaceIdAndTimeEntryId(workspaceId, timeEntryId)
+                .map(this::toRecord)
+                .orElseThrow(() -> new IllegalStateException(
+                        "cutoff_jobs row vanished after upsert for " + workspaceId + "/" + timeEntryId));
     }
 
     @Transactional(readOnly = true)

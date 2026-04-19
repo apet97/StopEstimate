@@ -19,7 +19,6 @@ import com.devodox.stopatestimate.util.ClockifyJson;
 import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -562,24 +561,7 @@ public class EstimateGuardService {
     }
 
     private void upsertJob(String workspaceId, String projectId, String userId, String timeEntryId, Instant cutoffAt) {
-        Optional<PendingCutoffJob> existing = cutoffJobStore.findByTimeEntryId(workspaceId, timeEntryId);
-        if (existing.isPresent() && existing.get().cutoffAt().equals(cutoffAt)) {
-            return;
-        }
-        existing.ifPresent(job -> cutoffJobStore.deleteByJobId(job.jobId()));
-        try {
-            cutoffJobStore.save(PendingCutoffJob.create(workspaceId, projectId, userId, timeEntryId, cutoffAt));
-        } catch (DataIntegrityViolationException race) {
-            // A parallel webhook delivery just inserted the (workspace_id, time_entry_id) row
-            // (uk_cutoff_jobs_workspace_time_entry in V1_0_5). Re-read and overwrite so our
-            // cutoffAt wins — subsequent ticks will converge to the same value anyway.
-            PendingCutoffJob winner = cutoffJobStore.findByTimeEntryId(workspaceId, timeEntryId).orElse(null);
-            if (winner == null || winner.cutoffAt().equals(cutoffAt)) {
-                return;
-            }
-            cutoffJobStore.deleteByJobId(winner.jobId());
-            cutoffJobStore.save(PendingCutoffJob.create(workspaceId, projectId, userId, timeEntryId, cutoffAt));
-        }
+        cutoffJobStore.upsert(workspaceId, projectId, userId, timeEntryId, cutoffAt);
     }
 
     private void stopRunningEntries(InstallationRecord installation, List<RunningTimeEntry> runningEntries, Instant cutoffAt) {
