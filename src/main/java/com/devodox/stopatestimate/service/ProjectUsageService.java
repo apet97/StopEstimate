@@ -21,7 +21,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ProjectUsageService {
@@ -75,23 +77,50 @@ public class ProjectUsageService {
             if (!projectId.equals(currentProjectId)) {
                 continue;
             }
-            Instant start = null;
-            JsonObject timeInterval = ClockifyJson.object(entry, "timeInterval");
-            if (timeInterval != null) {
-                start = ClockifyJson.instant(timeInterval.get("start"));
-            }
-            if (start == null) {
-                start = ClockifyJson.instant(entry.get("start"));
-            }
-            entries.add(new RunningTimeEntry(
-                    installation.workspaceId(),
-                    projectId,
-                    ClockifyJson.findFirstString(entry, "userId").orElse(null),
-                    ClockifyJson.findFirstString(entry, "id", "timeEntryId").orElse(null),
-                    start,
-                    ClockifyJson.bool(entry, "billable").orElse(false)));
+            entries.add(parseRunningEntry(installation.workspaceId(), currentProjectId, entry));
         }
         return entries;
+    }
+
+    /**
+     * Workspace-scoped fan-in: one HTTP call to
+     * {@code /v1/workspaces/{ws}/time-entries/status/in-progress} returns every running entry in
+     * the workspace. Callers that need running entries for many projects in one pass (sidebar
+     * summary) should use this instead of looping {@link #loadRunningEntries} per project —
+     * otherwise the same workspace-wide payload is fetched N times and filtered in-memory.
+     * <p>
+     * Freshness is identical to {@link #loadRunningEntries}; this is purely a batching refactor.
+     */
+    public Map<String, List<RunningTimeEntry>> loadRunningEntriesByProject(InstallationRecord installation) {
+        Map<String, List<RunningTimeEntry>> byProject = new LinkedHashMap<>();
+        for (JsonObject entry : backendApiClient.listInProgressTimeEntries(installation)) {
+            String projectId = ClockifyJson.findFirstString(entry, "projectId").orElse(null);
+            if (projectId == null || projectId.isBlank()) {
+                continue;
+            }
+            byProject
+                    .computeIfAbsent(projectId, k -> new ArrayList<>())
+                    .add(parseRunningEntry(installation.workspaceId(), projectId, entry));
+        }
+        return byProject;
+    }
+
+    private RunningTimeEntry parseRunningEntry(String workspaceId, String projectId, JsonObject entry) {
+        Instant start = null;
+        JsonObject timeInterval = ClockifyJson.object(entry, "timeInterval");
+        if (timeInterval != null) {
+            start = ClockifyJson.instant(timeInterval.get("start"));
+        }
+        if (start == null) {
+            start = ClockifyJson.instant(entry.get("start"));
+        }
+        return new RunningTimeEntry(
+                workspaceId,
+                projectId,
+                ClockifyJson.findFirstString(entry, "userId").orElse(null),
+                ClockifyJson.findFirstString(entry, "id", "timeEntryId").orElse(null),
+                start,
+                ClockifyJson.bool(entry, "billable").orElse(false));
     }
 
     private ProjectCaps parseCaps(JsonObject project, String defaultResetCadence) {
