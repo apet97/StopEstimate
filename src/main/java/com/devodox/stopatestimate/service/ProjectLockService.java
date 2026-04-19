@@ -95,7 +95,20 @@ public class ProjectLockService {
         if (snapshot == null) {
             return;
         }
+        unlockFromSnapshot(installation, snapshot);
+    }
 
+    @Transactional
+    public void unlockWorkspaceProjects(InstallationRecord installation) {
+        // DB-09: iterate the pre-loaded snapshots directly instead of round-tripping through
+        // unlockProject(projectId), which would re-fetch each snapshot we already have.
+        for (ProjectLockSnapshot snapshot : findSnapshots(installation.workspaceId())) {
+            unlockFromSnapshot(installation, snapshot);
+        }
+    }
+
+    private void unlockFromSnapshot(InstallationRecord installation, ProjectLockSnapshot snapshot) {
+        String projectId = snapshot.projectId();
         try {
             backendApiClient.updateProjectMemberships(
                     installation,
@@ -112,12 +125,5 @@ public class ProjectLockService {
         }
         backendApiClient.updateProjectVisibility(installation, projectId, snapshot.originalPublic());
         lockSnapshotStore.deleteByProject(snapshot.workspaceId(), projectId);
-    }
-
-    @Transactional
-    public void unlockWorkspaceProjects(InstallationRecord installation) {
-        for (ProjectLockSnapshot snapshot : findSnapshots(installation.workspaceId())) {
-            unlockProject(installation, snapshot.projectId());
-        }
     }
 }
