@@ -69,6 +69,11 @@ addon:
 clockify:
   cutoff:
     interval-ms: ${CLOCKIFY_CUTOFF_INTERVAL_MS:60000}
+  guard-events:
+    # ISO-8601 duration; rows older than (now - retention) are purged nightly.
+    retention: ${CLOCKIFY_GUARD_EVENTS_RETENTION:P30D}
+    # Default: 03:15 UTC daily (15m after the webhook-events cleanup tick).
+    purge-cron: ${CLOCKIFY_GUARD_EVENTS_PURGE_CRON:0 15 3 * * *}
 
 logging:
   level:
