@@ -1,8 +1,11 @@
 (function () {
     'use strict';
 
+    var DARK_THEMES = ['DARK', 'DARKBLUE'];
+
     var token = null;
     var refreshTimer = null;
+    var loadGeneration = 0;
     var parentOrigin = resolveParentOrigin();
 
     function init() {
@@ -18,34 +21,61 @@
         setText('user-id', claims.userId || claims.user || '-');
         bindActions();
         window.addEventListener('message', onParentMessage);
+        window.addEventListener('pagehide', onPageHide);
         scheduleRefresh();
         loadAll();
     }
 
     function bindActions() {
         var button = document.getElementById('reconcile-button');
-        if (button) {
-            button.addEventListener('click', function () {
-                setStatus('Running manual reconcile...');
-                postJson('/api/guard/reconcile').then(function (payload) {
-                    renderProjects(payload.projects || []);
-                    setStatus('Manual reconcile completed.');
-                }).catch(function (error) {
-                    setStatus(error.message);
-                });
-            });
+        if (!button) {
+            return;
         }
+        button.addEventListener('click', function () {
+            if (button.disabled) {
+                return;
+            }
+            button.disabled = true;
+            setStatus('Running manual reconcile...');
+            postJson('/api/guard/reconcile').then(function (payload) {
+                renderProjects(payload.projects || []);
+                setStatus('Manual reconcile completed.');
+            }).catch(function (error) {
+                setStatus(error.message);
+            }).then(function () {
+                button.disabled = false;
+            });
+        });
     }
 
     function loadAll() {
-        Promise.all([fetchJson('/api/context'), fetchJson('/api/guard/projects')])
+        // FE-06: a token refresh may trigger a second loadAll while the first is still in
+        // flight. Tag each call with a monotonically increasing generation and drop any
+        // response whose generation is no longer current.
+        var gen = ++loadGeneration;
+        Promise.allSettled([fetchJson('/api/context'), fetchJson('/api/guard/projects')])
             .then(function (results) {
-                renderContext(results[0]);
-                renderProjects(results[1].projects || []);
-                setStatus('Stop @ Estimate dashboard loaded.');
-            })
-            .catch(function (error) {
-                setStatus(error.message);
+                if (gen !== loadGeneration) {
+                    return;
+                }
+                var context = results[0];
+                var projects = results[1];
+                var messages = [];
+                if (context.status === 'fulfilled') {
+                    renderContext(context.value);
+                } else {
+                    messages.push('context: ' + context.reason.message);
+                }
+                if (projects.status === 'fulfilled') {
+                    renderProjects(projects.value.projects || []);
+                } else {
+                    messages.push('projects: ' + projects.reason.message);
+                }
+                if (messages.length === 0) {
+                    setStatus('Stop @ Estimate dashboard loaded.');
+                } else {
+                    setStatus('Partial load — ' + messages.join('; '));
+                }
             });
     }
 
@@ -67,10 +97,22 @@
     }
 
     function handleResponse(response) {
-        if (!response.ok) {
-            throw new Error('Backend call failed with status ' + response.status);
+        if (response.ok) {
+            return response.json();
         }
-        return response.json();
+        // FE-04: surface the server-provided error message instead of the opaque status line.
+        return response.text().then(function (body) {
+            var detail = null;
+            if (body) {
+                try {
+                    var parsed = JSON.parse(body);
+                    detail = parsed.message || parsed.error;
+                } catch (_ignored) {
+                    detail = body;
+                }
+            }
+            throw new Error(detail || ('Backend call failed with status ' + response.status));
+        });
     }
 
     function renderContext(payload) {
@@ -91,7 +133,11 @@
         if (!body || !table || !empty) {
             return;
         }
-        body.innerHTML = '';
+        // FE-01: build rows with DOM APIs and textContent so untrusted field values cannot
+        // escape into HTML context no matter what columns are added later.
+        while (body.firstChild) {
+            body.removeChild(body.firstChild);
+        }
         if (!projects || projects.length === 0) {
             table.style.display = 'none';
             empty.style.display = 'block';
@@ -101,17 +147,22 @@
         table.style.display = 'table';
 
         projects.forEach(function (project) {
+            var cells = [
+                project.projectName || project.projectId || '-',
+                project.status || '-',
+                project.reason || '-',
+                formatTime(project.trackedTimeMs) + ' / ' + formatTime(project.timeLimitMs),
+                formatMoney(project.budgetUsage) + ' / ' + formatMoney(project.budgetLimit),
+                String(project.runningEntryCount || 0),
+                formatInstant(project.cutoffAt),
+                formatInstant(project.nextResetAt)
+            ];
             var tr = document.createElement('tr');
-            tr.innerHTML = [
-                '<td>' + safe(project.projectName || project.projectId) + '</td>',
-                '<td>' + safe(project.status || '-') + '</td>',
-                '<td>' + safe(project.reason || '-') + '</td>',
-                '<td>' + formatTime(project.trackedTimeMs) + ' / ' + formatTime(project.timeLimitMs) + '</td>',
-                '<td>' + formatMoney(project.budgetUsage) + ' / ' + formatMoney(project.budgetLimit) + '</td>',
-                '<td>' + safe(String(project.runningEntryCount || 0)) + '</td>',
-                '<td>' + formatInstant(project.cutoffAt) + '</td>',
-                '<td>' + formatInstant(project.nextResetAt) + '</td>'
-            ].join('');
+            cells.forEach(function (text) {
+                var td = document.createElement('td');
+                td.textContent = text;
+                tr.appendChild(td);
+            });
             body.appendChild(tr);
         });
     }
@@ -131,7 +182,7 @@
         if (value === null || value === undefined || value === '') {
             return '-';
         }
-        return safe(String(value));
+        return String(value);
     }
 
     function formatInstant(value) {
@@ -141,7 +192,7 @@
         try {
             return new Date(value).toLocaleString();
         } catch (error) {
-            return safe(String(value));
+            return String(value);
         }
     }
 
@@ -172,7 +223,9 @@
         var theme = claims.theme || 'DEFAULT';
         var language = claims.language || 'en';
         document.documentElement.lang = String(language).toLowerCase();
-        if (String(theme).toUpperCase().indexOf('DARK') !== -1) {
+        // FE-08: match against a known list of dark-theme names rather than a substring of
+        // an unverified JWT claim. A future claim like "DARKISH" should not trip dark mode.
+        if (DARK_THEMES.indexOf(String(theme).toUpperCase()) !== -1) {
             document.body.classList.add('theme-dark');
         } else {
             document.body.classList.remove('theme-dark');
@@ -187,12 +240,22 @@
     }
 
     function requestTokenRefresh() {
+        // SEC-07: refuse to post a token-refresh request when we do not know the parent
+        // origin. The previous fallback of '*' would broadcast to any listener, and the
+        // onParentMessage guard below also became permissive when parentOrigin was null,
+        // so a malicious frame could inject a replacement token.
+        if (!parentOrigin) {
+            setStatus('Cannot refresh token: parent origin is unknown in this browser.');
+            return;
+        }
         setStatus('Requesting refreshed add-on token...');
-        window.parent.postMessage({ title: 'refreshAddonToken' }, parentOrigin || '*');
+        window.parent.postMessage({ title: 'refreshAddonToken' }, parentOrigin);
     }
 
     function onParentMessage(event) {
-        if (parentOrigin && event.origin !== parentOrigin) {
+        // SEC-07: if we never resolved the parent origin, reject all incoming messages —
+        // we cannot tell an add-on host message apart from a cross-frame attacker.
+        if (!parentOrigin || event.origin !== parentOrigin) {
             return;
         }
 
@@ -208,6 +271,11 @@
         setText('user-id', claims.userId || claims.user || '-');
         loadAll();
         setStatus('Token refreshed successfully.');
+    }
+
+    function onPageHide() {
+        clearInterval(refreshTimer);
+        window.removeEventListener('message', onParentMessage);
     }
 
     function normalizeMessageData(value) {
@@ -238,13 +306,6 @@
         } catch (error) {
         }
         return null;
-    }
-
-    function safe(value) {
-        return String(value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
     }
 
     function setText(id, value) {
