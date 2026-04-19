@@ -3,7 +3,8 @@ spring:
     url: jdbc:h2:mem:stopatestimate;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
-    password: ""
+    # Non-blank, non-example value so the SecurityConfig fail-fast guard is satisfied.
+    password: "test-only-not-a-real-secret"
   jpa:
     hibernate:
       ddl-auto: none

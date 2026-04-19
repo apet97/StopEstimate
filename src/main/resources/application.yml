@@ -4,7 +4,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/stop_at_estimate}
     username: ${SPRING_DATASOURCE_USERNAME:stop_at_estimate}
-    password: ${SPRING_DATASOURCE_PASSWORD:stop_at_estimate}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2

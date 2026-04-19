@@ -1,6 +1,7 @@
 package com.devodox.stopatestimate.config;
 
 import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -30,10 +31,21 @@ public class SecurityConfig {
     private static final Set<String> FORBIDDEN_SALTS = Set.of(
             "0123456789abcdef0123456789abcdef");
 
-    private final AddonProperties addonProperties;
+    /**
+     * Placeholder DB passwords shipped in repo examples / docker-compose.yml. Operators
+     * MUST override SPRING_DATASOURCE_PASSWORD in any deploy — startup fails if the
+     * effective password is blank or matches one of these checked-in values.
+     */
+    private static final Set<String> FORBIDDEN_DB_PASSWORDS = Set.of("stop_at_estimate");
 
-    public SecurityConfig(AddonProperties addonProperties) {
+    private final AddonProperties addonProperties;
+    private final String datasourcePassword;
+
+    public SecurityConfig(
+            AddonProperties addonProperties,
+            @Value("${spring.datasource.password:}") String datasourcePassword) {
         this.addonProperties = addonProperties;
+        this.datasourcePassword = datasourcePassword;
     }
 
     @PostConstruct
@@ -74,6 +86,17 @@ public class SecurityConfig {
             throw new IllegalStateException(
                     "addon.encryption-salt-hex is set to a checked-in example value; "
                             + "generate a unique salt with `openssl rand -hex 16`");
+        }
+
+        if (datasourcePassword == null || datasourcePassword.isBlank()) {
+            throw new IllegalStateException(
+                    "spring.datasource.password (SPRING_DATASOURCE_PASSWORD) must be set; "
+                            + "no default is accepted");
+        }
+        if (FORBIDDEN_DB_PASSWORDS.contains(datasourcePassword)) {
+            throw new IllegalStateException(
+                    "spring.datasource.password is set to a checked-in example value; "
+                            + "set SPRING_DATASOURCE_PASSWORD to a deploy-specific secret");
         }
     }
 
