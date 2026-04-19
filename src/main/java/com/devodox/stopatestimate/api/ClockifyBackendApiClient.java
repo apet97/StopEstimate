@@ -352,7 +352,10 @@ public class ClockifyBackendApiClient {
                     "Clockify backend rejected the installation token", e);
         }
         if (code == 403) {
-            return new com.devodox.stopatestimate.service.ClockifyAccessForbiddenException(
+            // RES-08: distinguish a backend permission failure (addon lost scope / admin
+            // revoked access) from a webhook-token mismatch so the exception handler can
+            // emit a different error code.
+            return new com.devodox.stopatestimate.service.ClockifyBackendForbiddenException(
                     "Clockify backend forbade the request", e);
         }
         return new ClockifyApiException("Clockify backend call failed with status " + status, e);

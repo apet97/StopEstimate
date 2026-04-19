@@ -2,8 +2,10 @@ package com.devodox.stopatestimate.web;
 
 import com.devodox.stopatestimate.api.ClockifyApiException;
 import com.devodox.stopatestimate.service.ClockifyAccessForbiddenException;
+import com.devodox.stopatestimate.service.ClockifyBackendForbiddenException;
 import com.devodox.stopatestimate.service.ClockifyRequestAuthException;
 import com.devodox.stopatestimate.service.InvalidAddonTokenException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import com.google.gson.JsonSyntaxException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +39,21 @@ public class GlobalExceptionHandler {
         return respond(HttpStatus.UNAUTHORIZED, "invalid_request_token", e.getMessage());
     }
 
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingHeader(MissingRequestHeaderException e) {
+        // SEC-04: missing X-Addon-Lifecycle-Token or Clockify-Signature. Spring otherwise
+        // produces a 400 that bypasses our auth semantics.
+        return respond(HttpStatus.UNAUTHORIZED, "missing_auth_header",
+                "Required auth header '" + e.getHeaderName() + "' is missing");
+    }
+
+    @ExceptionHandler(ClockifyBackendForbiddenException.class)
+    public ResponseEntity<Map<String, Object>> handleBackendForbidden(ClockifyBackendForbiddenException e) {
+        // RES-08: separate from webhook-token mismatch — an operator looking at logs can
+        // tell the addon has lost a Clockify permission rather than a webhook secret drift.
+        return respond(HttpStatus.FORBIDDEN, "clockify_permission_denied", e.getMessage());
+    }
+
     @ExceptionHandler(ClockifyAccessForbiddenException.class)
     public ResponseEntity<Map<String, Object>> handleForbidden(ClockifyAccessForbiddenException e) {
         return respond(HttpStatus.FORBIDDEN, "webhook_token_mismatch", e.getMessage());
@@ -55,7 +72,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException e) {
-        return respond(HttpStatus.BAD_REQUEST, "invalid_request", e.getMessage());
+        // RES-07: third-party libraries occasionally wrap internal paths or field names in
+        // the exception message. Log the detail for support; return a generic message to
+        // callers so we match the protection intent of server.error.include-message=never.
+        log.debug("IllegalArgumentException: {}", e.getMessage(), e);
+        return respond(HttpStatus.BAD_REQUEST, "invalid_request", "Invalid request parameters");
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

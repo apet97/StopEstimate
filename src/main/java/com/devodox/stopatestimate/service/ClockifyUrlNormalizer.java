@@ -9,11 +9,13 @@ public final class ClockifyUrlNormalizer {
 
     /**
      * Any subdomain of {@code clockify.me} is accepted — covers {@code api.clockify.me},
-     * {@code api.eu.clockify.me}, {@code global.api.clockify.me}, {@code reports.clockify.me},
-     * etc. A JWT whose {@code backendUrl} resolves to an attacker-owned host would otherwise
-     * receive the installation token via {@code X-Addon-Token} on the next outbound call.
+     * {@code api.eu.clockify.me}, {@code global.api.clockify.me}, {@code reports.api.clockify.me},
+     * regional shards (euc1/apse2/…), etc. Requires at least one subdomain component so bare
+     * {@code clockify.me} (marketing site) is rejected. A JWT whose {@code backendUrl}
+     * resolves to an attacker-owned host would otherwise receive the installation token via
+     * {@code X-Addon-Token} on the next outbound call.
      */
-    private static final Pattern ALLOWED_HOST = Pattern.compile("^(?:[a-z0-9-]+\\.)*clockify\\.me$");
+    private static final Pattern ALLOWED_HOST = Pattern.compile("^(?:[a-z0-9-]+\\.)+clockify\\.me$");
 
     private ClockifyUrlNormalizer() {
     }
@@ -53,15 +55,12 @@ public final class ClockifyUrlNormalizer {
             path = path + "/api";
         }
 
+        // SEC-05: drop userInfo, query, and fragment from the normalized URL. A crafted
+        // JWT backendUrl like `https://user:pass@api.clockify.me/api?inject=true#frag`
+        // would otherwise propagate embedded credentials, arbitrary query params, and a
+        // fragment into every outbound Clockify call.
         try {
-            return new URI(
-                    "https",
-                    uri.getUserInfo(),
-                    hostLower,
-                    uri.getPort(),
-                    path,
-                    uri.getQuery(),
-                    uri.getFragment()).toString();
+            return new URI("https", null, hostLower, uri.getPort(), path, null, null).toString();
         } catch (URISyntaxException e) {
             throw new InvalidAddonTokenException("Failed to rebuild Clockify backend URL", e);
         }

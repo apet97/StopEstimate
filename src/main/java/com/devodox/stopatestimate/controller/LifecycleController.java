@@ -22,7 +22,7 @@ public class LifecycleController {
     @PostMapping("/installed")
     public ResponseEntity<Void> installed(
             @RequestBody String body,
-            @RequestHeader(value = "X-Addon-Lifecycle-Token", required = false) String lifecycleToken) {
+            @RequestHeader(value = "X-Addon-Lifecycle-Token", required = true) String lifecycleToken) {
         lifecycleService.handleInstalled(body, lifecycleToken);
         return ResponseEntity.ok().build();
     }
@@ -30,7 +30,7 @@ public class LifecycleController {
     @PostMapping("/deleted")
     public ResponseEntity<Void> deleted(
             @RequestBody String body,
-            @RequestHeader(value = "X-Addon-Lifecycle-Token", required = false) String lifecycleToken) {
+            @RequestHeader(value = "X-Addon-Lifecycle-Token", required = true) String lifecycleToken) {
         lifecycleService.handleDeleted(body, lifecycleToken);
         return ResponseEntity.ok().build();
     }
@@ -38,7 +38,7 @@ public class LifecycleController {
     @PostMapping("/status-changed")
     public ResponseEntity<Void> statusChanged(
             @RequestBody String body,
-            @RequestHeader(value = "X-Addon-Lifecycle-Token", required = false) String lifecycleToken) {
+            @RequestHeader(value = "X-Addon-Lifecycle-Token", required = true) String lifecycleToken) {
         lifecycleService.handleStatusChanged(body, lifecycleToken);
         return ResponseEntity.ok().build();
     }
@@ -46,7 +46,7 @@ public class LifecycleController {
     @PostMapping("/settings-updated")
     public ResponseEntity<Void> settingsUpdated(
             @RequestBody String body,
-            @RequestHeader(value = "X-Addon-Lifecycle-Token", required = false) String lifecycleToken) {
+            @RequestHeader(value = "X-Addon-Lifecycle-Token", required = true) String lifecycleToken) {
         lifecycleService.handleSettingsUpdated(body, lifecycleToken);
         return ResponseEntity.ok().build();
     }

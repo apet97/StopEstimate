@@ -36,7 +36,7 @@ public class WebhookController {
     @PostMapping("/new-timer-started")
     public ResponseEntity<Void> newTimerStarted(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("NEW_TIMER_STARTED", "/webhook/new-timer-started", body, signature, eventType);
     }
@@ -44,7 +44,7 @@ public class WebhookController {
     @PostMapping("/timer-stopped")
     public ResponseEntity<Void> timerStopped(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("TIMER_STOPPED", "/webhook/timer-stopped", body, signature, eventType);
     }
@@ -52,7 +52,7 @@ public class WebhookController {
     @PostMapping("/new-time-entry")
     public ResponseEntity<Void> newTimeEntry(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("NEW_TIME_ENTRY", "/webhook/new-time-entry", body, signature, eventType);
     }
@@ -60,7 +60,7 @@ public class WebhookController {
     @PostMapping("/time-entry-updated")
     public ResponseEntity<Void> timeEntryUpdated(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("TIME_ENTRY_UPDATED", "/webhook/time-entry-updated", body, signature, eventType);
     }
@@ -68,7 +68,7 @@ public class WebhookController {
     @PostMapping("/time-entry-deleted")
     public ResponseEntity<Void> timeEntryDeleted(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("TIME_ENTRY_DELETED", "/webhook/time-entry-deleted", body, signature, eventType);
     }
@@ -76,7 +76,7 @@ public class WebhookController {
     @PostMapping("/project-updated")
     public ResponseEntity<Void> projectUpdated(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("PROJECT_UPDATED", "/webhook/project-updated", body, signature, eventType);
     }
@@ -84,7 +84,7 @@ public class WebhookController {
     @PostMapping("/expense-created")
     public ResponseEntity<Void> expenseCreated(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("EXPENSE_CREATED", "/webhook/expense-created", body, signature, eventType);
     }
@@ -92,7 +92,7 @@ public class WebhookController {
     @PostMapping("/expense-updated")
     public ResponseEntity<Void> expenseUpdated(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("EXPENSE_UPDATED", "/webhook/expense-updated", body, signature, eventType);
     }
@@ -100,7 +100,7 @@ public class WebhookController {
     @PostMapping("/expense-deleted")
     public ResponseEntity<Void> expenseDeleted(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("EXPENSE_DELETED", "/webhook/expense-deleted", body, signature, eventType);
     }
@@ -108,7 +108,7 @@ public class WebhookController {
     @PostMapping("/expense-restored")
     public ResponseEntity<Void> expenseRestored(
             @RequestBody String body,
-            @RequestHeader(value = "Clockify-Signature", required = false) String signature,
+            @RequestHeader(value = "Clockify-Signature", required = true) String signature,
             @RequestHeader(value = "clockify-webhook-event-type", required = false) String eventType) {
         return handleWebhook("EXPENSE_RESTORED", "/webhook/expense-restored", body, signature, eventType);
     }
