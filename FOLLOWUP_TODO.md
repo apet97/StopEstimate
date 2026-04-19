@@ -14,7 +14,9 @@ All 71 existing tests pass today. Land each fix below as its own commit; re-run 
 
 **Batch 5 drain (2026-04-19):** landed in commit `7703f79`. Adds `TokenReencrypter` + `TokenReencrypterRunner` startup pass that rewrites legacy-format tokens to the modern format and emits a `legacy_remaining=0` verification log line. 76/76 tests green. **Fallback removal is a separate follow-up PR**, blocked on a post-deploy log confirming `installations_legacy_remaining=0` and `webhooks_legacy_remaining=0` in prod.
 
-Remaining: Batch 6 (TEST-01..13 + jacoco/dependency-check) and the SEC-03 fallback-removal PR described above.
+**Batch 6 tests (2026-04-19):** landed across two PRs. Part 1 (PR #3, TEST-01/02/03/04/05/10) added `EstimateGuardServiceProcessDueJobsTest`, `ClockifyWebhookServiceTest`, `VerifiedAddonContextServiceTest` and extended `EstimateGuardServiceTest`. Part 2 (TEST-06/07/08/09/11/12/13) added `ClockifyLifecycleServiceTest` and extended `EstimateGuardServiceTest`, `TokenVerificationServiceTest`, `ResetWindowScheduleTest`, `ProjectUsageServiceTest`, `InstallReconcileRetrierTest`. 135/135 tests green.
+
+Remaining: the SEC-03 fallback-removal PR described above, and jacoco/dependency-check plugin wiring (not covered by any TEST-* item).
 
 **DO NOT TOUCH — verified as wrong or by-design:**
 - **SEC-01** (webhook signature check). `ClockifyWebhookService.handleWebhook` already performs full RS256 verification at line 65 via `TokenVerificationService.verifyAndParseClaims`, with `workspaceId`/`addonId` claim checks on lines 69–80, and the per-route `constantTimeEquals` at line 81 is the documented defence-in-depth step #3. The audit misread `verifyStoredWebhookToken` in isolation. Confirmed against canonical-docs `01-canonical-docs/build/manifest/webhooks.md`.
@@ -142,6 +144,6 @@ Suggested batching (land each batch as one PR, run `./mvnw test` between commits
 - **Batch 3 (DB housekeeping):** ✅ LANDED (commits `961cc7d`, `28c99ad`, `69587fb`, `8a110cf`, `983ab34`). BUG-05, DB-06 (+ V1_0_8 migration), DB-07, DB-08, DB-09, DB-10.
 - **Batch 4 (accessibility + UI):** ✅ LANDED (commits `961cc7d`, `88691b5`). FE-10, FE-11.
 - **Batch 5 (SEC-03 finalisation):** ✅ drain landed (commit `7703f79`). Fallback-removal PR still outstanding — open after a prod deploy confirms `legacy_remaining=0` in both TokenReencrypter verification lines.
-- **Batch 6 (tests — biggest gap):** TEST-01..13 in the priority order above. 2–3 days.
+- **Batch 6 (tests — biggest gap):** ✅ landed. TEST-01..13 complete across PR #3 and PR #4. 135/135 tests green. Jacoco + dependency-check Maven plugins remain as a separate housekeeping task.
 
 **Acceptance check per batch:** `./mvnw test` green; `0_TO_WORKING.md` scenarios still pass (manifest → install → webhook → cap-reached hard-stop → settings-updated unlock).
