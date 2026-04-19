@@ -7,9 +7,10 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 /**
- * Runs the SEC-03 drain pass once per startup. Emits two INFO lines that deploy checks grep for:
- * the conversion summary and the verification summary ({@code legacy_remaining=0} is the gate
- * before the fallback branch can be removed from {@code SecurityConfig.textEncryptor}).
+ * Runs the SEC-03 drain pass once per startup. Emits two INFO lines: the conversion summary and
+ * the verification summary. On a fully-migrated DB both {@code legacy_remaining} values will be
+ * {@code 0}. The fallback branch has been removed from {@code SecurityConfig.textEncryptor}
+ * (commit {@code 1caa2b6}); this runner is retained as an idempotent guardrail.
  */
 @Component
 public class TokenReencrypterRunner implements ApplicationRunner {
@@ -37,9 +38,9 @@ public class TokenReencrypterRunner implements ApplicationRunner {
                     report.installationsLegacyRemaining(),
                     report.webhooksLegacyRemaining());
         } catch (RuntimeException e) {
-            // Live traffic keeps working via the legacy fallback in SecurityConfig.textEncryptor,
-            // so swallowing here is safe: a transient DB blip at startup shouldn't crash the app,
-            // and the next restart retries.
+            // On a fully-migrated DB the drain finds zero legacy rows, so a failure here is safe
+            // to swallow: a transient DB blip at startup should not crash the app, and the next
+            // boot will retry. Any genuinely un-migrated row will be caught on the next restart.
             log.warn("TokenReencrypter drain pass failed — will retry on next startup", e);
         }
     }

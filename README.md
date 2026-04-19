@@ -105,7 +105,7 @@ Two independent paths notice timer activity. Either one triggers the same guard 
 ## Security posture
 
 - **JWT verification** — RS256 against the published Clockify public key, with hard checks on `iss`, `type`, `sub`, numeric `exp`, and when present `nbf` / `iat`.
-- **Tokens at rest** — installation tokens and per-workspace webhook tokens are AES-256 encrypted via `spring-security-crypto` `Encryptors.text`. `addon.encryption-key-hex` and `addon.encryption-salt-hex` have **no defaults**; the app fails fast at startup if either is unset or matches the well-known checked-in example values in `.env.example`.
+- **Tokens at rest** — installation tokens and per-workspace webhook tokens are AES-256 encrypted via `spring-security-crypto` `Encryptors.delux` (AES-256-CBC, random 16-byte IV per value — non-deterministic). `addon.encryption-key-hex` and `addon.encryption-salt-hex` have **no defaults**; the app fails fast at startup if either is unset or matches the well-known checked-in example values in `.env.example`.
 - **Per-route webhook tokens** — a token registered for one webhook path cannot authenticate a different webhook path. Constant-time compare.
 - **Protected APIs** — every `/api/*` call requires `X-Addon-Token`. `auth_token` is stripped from the iframe URL before any backend call.
 - **Local assets only** — the sidebar serves all CSS/JS from this origin; no third-party CDN dependencies.

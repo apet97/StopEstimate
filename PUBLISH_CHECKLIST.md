@@ -27,7 +27,7 @@ All items should be confirmed from the current commit.
 ## 2. Security review
 
 - [ ] No third-party CDN resources in the sidebar; all CSS/JS served from this origin.
-- [ ] Installation token and per-workspace webhook tokens are AES-256 encrypted at rest (`Encryptors.text`).
+- [ ] Installation token and per-workspace webhook tokens are AES-256 encrypted at rest (`Encryptors.delux` — AES-256-CBC, random 16-byte IV per value — non-deterministic).
 - [ ] Encryption material is provided exclusively via environment; no defaults ship in the jar.
 - [ ] `auth_token` is removed from the iframe URL by the sidebar JS before any backend call (`history.replaceState`).
 - [ ] HTTPS-only base URL (enforced by the marketplace manifest contract; confirm your deploy terminates TLS correctly).

@@ -840,7 +840,7 @@ if (DARK_THEMES.indexOf(String(theme).toUpperCase()) !== -1) {
 | P0 | BUG-11 | processDueJobs partial failure leaves timer stopped, project unlocked | Medium |
 | P1 — Before next release | BUG-01 | processDueJobs single @Transactional rolls back all jobs on one failure | Medium |
 | P1 | BUG-06 | @Transactional holds DB connection over HTTP I/O in reconcileProject | Large |
-| P1 | SEC-03 | Deterministic CBC encryption (Encryptors.text) | Medium |
+| P1 | SEC-03 | ✅ DONE (7703f79 + 1caa2b6) — Deterministic CBC encryption (Encryptors.text) | Medium |
 | P1 | SEC-07 | postMessage uses '*' — token injection possible in Firefox/Safari | Small |
 | P1 | SEC-05 | URL normalizer preserves userInfo/query/fragment | Small |
 | P1 | FE-01 | tr.innerHTML XSS surface — switch to DOM construction | Small |

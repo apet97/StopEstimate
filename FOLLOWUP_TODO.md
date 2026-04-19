@@ -12,11 +12,11 @@ All 71 existing tests pass today. Land each fix below as its own commit; re-run 
 
 **Batch 3/4 remainder (2026-04-19):** landed in commits `28c99ad..88691b5` (5 commits, 72/72 tests green after each). Covered: BUG-05, DB-06 (+ `V1_0_8` migration), DB-08, DB-09, FE-11.
 
-**Batch 5 drain (2026-04-19):** landed in commit `7703f79`. Adds `TokenReencrypter` + `TokenReencrypterRunner` startup pass that rewrites legacy-format tokens to the modern format and emits a `legacy_remaining=0` verification log line. 76/76 tests green. **Fallback removal is a separate follow-up PR**, blocked on a post-deploy log confirming `installations_legacy_remaining=0` and `webhooks_legacy_remaining=0` in prod.
+**Batch 5 drain (2026-04-19):** landed in commit `7703f79`. Adds `TokenReencrypter` + `TokenReencrypterRunner` startup pass that rewrites legacy-format tokens to the modern format and emits a `legacy_remaining=0` verification log line. 76/76 tests green. Drain complete; fallback removed in commit `1caa2b6`.
 
 **Batch 6 tests (2026-04-19):** landed across two PRs. Part 1 (PR #3, TEST-01/02/03/04/05/10) added `EstimateGuardServiceProcessDueJobsTest`, `ClockifyWebhookServiceTest`, `VerifiedAddonContextServiceTest` and extended `EstimateGuardServiceTest`. Part 2 (TEST-06/07/08/09/11/12/13) added `ClockifyLifecycleServiceTest` and extended `EstimateGuardServiceTest`, `TokenVerificationServiceTest`, `ResetWindowScheduleTest`, `ProjectUsageServiceTest`, `InstallReconcileRetrierTest`. 135/135 tests green.
 
-Remaining: the SEC-03 fallback-removal PR described above, and jacoco/dependency-check plugin wiring (not covered by any TEST-* item).
+All deferred items landed. SEC-03 fallback removed (`1caa2b6`); jacoco coverage profile added (`945193d`); dependency-check security-scan profile added (`7b2b4aa`).
 
 **DO NOT TOUCH — verified as wrong or by-design:**
 - **SEC-01** (webhook signature check). `ClockifyWebhookService.handleWebhook` already performs full RS256 verification at line 65 via `TokenVerificationService.verifyAndParseClaims`, with `workspaceId`/`addonId` claim checks on lines 69–80, and the per-route `constantTimeEquals` at line 81 is the documented defence-in-depth step #3. The audit misread `verifyStoredWebhookToken` in isolation. Confirmed against canonical-docs `01-canonical-docs/build/manifest/webhooks.md`.
@@ -108,10 +108,7 @@ throw new ClockifyApiException("Reports call failed with " + code, e);
 ### FE-10 — aria-live on status elements
 `src/main/resources/templates/sidebar.html:145,167`. Add `role="status" aria-live="polite"` to `#mode-pill` and `role="status" aria-live="polite" aria-atomic="true"` to `#status-line`. Optionally add `aria-describedby="status-line"` on the reconcile button.
 
-### SEC-03 follow-up — drain legacy-format encrypted tokens
-`src/main/java/com/devodox/stopatestimate/config/SecurityConfig.java:85–115`. The current `textEncryptor` bean reads legacy `Encryptors.text()` ciphertext as a fallback so SEC-03 shipped zero-downtime. Finish the job:
-- Add a `@Transactional` startup task (or one-shot Flyway Java migration) that iterates `installations` and `webhook_registrations`, decrypts (hits fallback), re-encrypts (modern), persists.
-- After the next deploy confirms all rows are re-encrypted, remove the `legacy` fallback from the bean.
+### SEC-03 follow-up — ✅ COMPLETE. Drain landed in `7703f79`; fallback removed in `1caa2b6`. `SecurityConfig.textEncryptor` now returns `Encryptors.delux(...)` directly with no legacy branch.
 
 ---
 
@@ -143,7 +140,7 @@ Suggested batching (land each batch as one PR, run `./mvnw test` between commits
 - **Batch 2 (resilience — medium):** ✅ LANDED (commit `42dafce`). RES-01, RES-02, RES-03, RES-04, RES-06.
 - **Batch 3 (DB housekeeping):** ✅ LANDED (commits `961cc7d`, `28c99ad`, `69587fb`, `8a110cf`, `983ab34`). BUG-05, DB-06 (+ V1_0_8 migration), DB-07, DB-08, DB-09, DB-10.
 - **Batch 4 (accessibility + UI):** ✅ LANDED (commits `961cc7d`, `88691b5`). FE-10, FE-11.
-- **Batch 5 (SEC-03 finalisation):** ✅ drain landed (commit `7703f79`). Fallback-removal PR still outstanding — open after a prod deploy confirms `legacy_remaining=0` in both TokenReencrypter verification lines.
-- **Batch 6 (tests — biggest gap):** ✅ landed. TEST-01..13 complete across PR #3 and PR #4. 135/135 tests green. Jacoco + dependency-check Maven plugins remain as a separate housekeeping task.
+- **Batch 5 (SEC-03 finalisation):** ✅ LANDED. Drain in `7703f79`, fallback removal in `1caa2b6`. `SecurityConfig.textEncryptor` now calls `Encryptors.delux` directly.
+- **Batch 6 (tests + tooling):** ✅ LANDED. TEST-01..13 in PR #3 and PR #5. Jacoco coverage profile in `945193d`; dependency-check security-scan profile in `7b2b4aa`. 135/135 tests green.
 
 **Acceptance check per batch:** `./mvnw test` green; `0_TO_WORKING.md` scenarios still pass (manifest → install → webhook → cap-reached hard-stop → settings-updated unlock).

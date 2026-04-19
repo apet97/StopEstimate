@@ -16,9 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
  * ({@code Encryptors.text}) and rewrites them with the non-deterministic format
  * ({@code Encryptors.delux}) that {@code SecurityConfig.textEncryptor} uses for new writes.
  *
- * <p>Once a deploy confirms zero legacy rows remain (see the {@code legacy_remaining=0} log line
- * emitted by the verification pass), the fallback {@code legacy.decrypt(...)} branch in
- * {@code SecurityConfig.textEncryptor} can be removed in a separate deploy.
+ * <p>The fallback {@code legacy.decrypt(...)} branch in {@code SecurityConfig.textEncryptor} has
+ * been removed (commit {@code 1caa2b6}). This component is retained as an idempotent guardrail:
+ * on a fully-migrated DB it finds zero legacy rows and exits immediately. Any newly-introduced
+ * legacy-format row would be caught and rewritten on the next boot.
  *
  * <p>The component holds both encryptors directly so it can distinguish "already modern"
  * ({@code modern.decrypt} succeeds → skip) from "was legacy" ({@code modern.decrypt} fails, the
