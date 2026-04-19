@@ -98,8 +98,12 @@ public class EstimateGuardService {
         }
     }
 
-    @Transactional
     public void reconcileProject(String workspaceId, String projectId, String source, JsonObject payload) {
+        // BUG-06: no method-wide @Transactional. This method makes 3–5 Clockify HTTP calls
+        // and previously held a DB connection across all of them, exhausting the pool under
+        // load. Each collaborator (cutoffJobStore, projectLockService, recordEvent) commits
+        // its own small transaction, and partial failure is acceptable: the next reconcile
+        // tick (or due-job firing) reconverges state.
         InstallationRecord installation = lifecycleService.findInstallation(workspaceId).orElse(null);
         if (installation == null || projectId == null || projectId.isBlank()) {
             return;
@@ -323,11 +327,15 @@ public class EstimateGuardService {
     }
 
     private ProjectGuardSummary summarizeProject(InstallationRecord installation, String projectId) {
+        // BUG-08: capture `now` once. Previously clock.instant() was called twice and the
+        // HTTP latency of loadRunningEntries/loadProjectUsage was being counted as elapsed
+        // running time in `assess`, which pushed cutoffAt earlier than it should be.
+        Instant now = clock.instant();
         ProjectState projectState = projectUsageService.loadProjectState(installation, projectId);
         ProjectCaps caps = projectState.caps();
-        ProjectUsage usage = projectUsageService.loadProjectUsage(installation, projectState, clock.instant());
+        ProjectUsage usage = projectUsageService.loadProjectUsage(installation, projectState, now);
         List<RunningTimeEntry> runningEntries = projectUsageService.loadRunningEntries(installation, projectId);
-        Assessment assessment = assess(projectState, usage, runningEntries, clock.instant(), "summary", null);
+        Assessment assessment = assess(projectState, usage, runningEntries, now, "summary", null);
         Optional<ProjectLockSnapshot> snapshot = projectLockService.findSnapshot(installation.workspaceId(), projectId);
 
         boolean activeCaps = caps != null && caps.hasActiveCaps();
