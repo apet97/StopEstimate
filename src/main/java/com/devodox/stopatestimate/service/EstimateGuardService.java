@@ -76,10 +76,9 @@ public class EstimateGuardService {
     }
 
     public void reconcileAll(String source) {
-        for (InstallationRecord installation : lifecycleService.findAllInstallations()) {
-            if (installation.active()) {
-                reconcileKnownProjects(installation.workspaceId(), source);
-            }
+        // DB-08: DB-side filter via idx_installations_active; no need to re-check .active() here.
+        for (InstallationRecord installation : lifecycleService.findActiveInstallations()) {
+            reconcileKnownProjects(installation.workspaceId(), source);
         }
     }
 
