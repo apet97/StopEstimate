@@ -127,6 +127,8 @@ Before claiming success, verify this end-to-end path on the live Pro workspace:
 | Private install returns 403 from Clockify | Your workspace is not on the Pro plan |
 | Webhook returns 403 `webhook_token_mismatch` | Signature JWT does not match the token stored for that exact route |
 | `/api/*` returns 401 | `X-Addon-Token` missing, not RS256, wrong `sub`, or expired |
+| Timers not stopping / Scheduler stalled | ShedLock timestamp was stored with a timezone offset causing future lockouts (often caused by unhandled 401s pinning threads). Run `DELETE FROM shedlock;` and restart. |
+| Webhooks not arriving at all | If `POST /lifecycle/installed` returned an error or timed out initially, Clockify silently skips registering webhooks. Fix by clicking **Save** in your Developer Console or reinstalling. |
 
 ## 11. Source-of-truth references
 

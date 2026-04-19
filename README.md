@@ -153,16 +153,12 @@ curl -s http://localhost:8080/actuator/health
 
 **Production status:** webhook deliveries arrive normally on production Pro workspaces (verified 2026-04-19) — `NEW_TIMER_STARTED` / `NEW_TIME_ENTRY` etc. fire as soon as the user-side action lands, and the addon's per-route handlers receive the signed POST and reconcile within seconds. The 5 manifest-declared webhooks are the primary low-latency path in prod.
 
-**Dev workspace `69bda6b317a0c5babe34b4ff`:** addon-registered webhooks never receive deliveries — including when "SEND TEST" is clicked from the admin Webhooks page. Verified by:
+**Dev workspace `69bda6b317a0c5babe34b4ff`:** Previously observed that addon-registered webhooks never received deliveries. 
+This happens if the addon responded with an error (e.g. `401 Unauthorized` cascading from API unresponsiveness) or timed out during the initial `POST /lifecycle/installed` exchange. In such cases, Clockify **silently aborts registering the webhooks** specified in the manifest, even though the application reports active.
 
-- Tomcat access log shows 0 `POST /webhook/*` entries from any source; lifecycle POSTs land perfectly
-- `/webhook/new-timer-started` returns 401 to external bad-signature probes (handler alive, route reachable via tunnel)
-- Clockify admin UI confirms `0 attempts` after SEND TEST
-- Full uninstall + reinstall does not reset the stuck state
+**Resolution**: To fix missing webhooks, simply click **Save** in the Clockify Developer Console or fully uninstall and reinstall the add-on to force a new attempt to register manifest webhooks.
 
-This matches a [known Clockify-side bug](https://forum.clockify.me/t/webhooks/21) previously fixed by their engineering for other users on user-registered webhooks. Since this is now isolated to a single dev tenant, it is no longer release-blocking; the SUPPORT_TICKET draft is kept for whenever the dev workspace eventually needs unsticking.
-
-**Impact on this addon**: none. In prod the webhook path drives near-instant reconcile; on the stuck dev tenant the 60s scheduler tick is the backstop (≤60s from breach). The webhook handlers stay registered exactly as declared.
+**Impact on this addon**: Minimal. In prod the webhook path drives near-instant reconcile; if webhooks fail or get stuck, the 60s scheduler tick acts as a durable backstop (≤60s from breach) to stop timers.
 
 ### Internal — see [TODO.md](./TODO.md) for the full backlog
 
