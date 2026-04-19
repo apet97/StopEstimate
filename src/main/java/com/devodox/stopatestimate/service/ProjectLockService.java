@@ -80,12 +80,47 @@ public class ProjectLockService {
         // short-circuited, and nothing ever restored it.
         lockSnapshotStore.save(snapshot);
 
-        backendApiClient.updateProjectVisibility(installation, projectState.projectId(), false);
         try {
-            backendApiClient.updateProjectMemberships(installation, projectState.projectId(), allowedMembers, List.of());
-        } catch (ClockifyApiException e) {
-            log.warn("Project membership group clear failed for {}. Falling back to direct members only.", projectState.projectId(), e);
-            backendApiClient.updateProjectMemberships(installation, projectState.projectId(), allowedMembers, null);
+            backendApiClient.updateProjectVisibility(installation, projectState.projectId(), false);
+            try {
+                backendApiClient.updateProjectMemberships(installation, projectState.projectId(), allowedMembers, List.of());
+            } catch (ClockifyApiException e) {
+                log.warn("Project membership group clear failed for {}. Falling back to direct members only.", projectState.projectId(), e);
+                backendApiClient.updateProjectMemberships(installation, projectState.projectId(), allowedMembers, null);
+            }
+        } catch (RuntimeException lockErr) {
+            // Compensate a partial lock. Before this, if updateProjectMemberships (including its
+            // direct-users fallback) threw after updateProjectVisibility had already flipped the
+            // project private, we exited with the project "half-locked": private in Clockify,
+            // original members still assigned. Scheduler reconvergence did NOT heal this class
+            // of state — reconcileProject skips lockProject when a snapshot already exists
+            // (see EstimateGuardService line ~154), so a project that stayed over cap could
+            // linger half-locked indefinitely, healed only when it transitioned to unlock.
+            //
+            // Reverse the visibility flip (idempotent HTTP call — safe even if the forward
+            // flip never reached the server) and drop the snapshot. Spring's @Transactional
+            // rollback handles the snapshot save too when we rethrow, but the explicit
+            // deleteByProject makes the compensation intent visible at the call site and
+            // keeps it correct if the transactional annotation is ever revisited.
+            //
+            // This does NOT regress BUG-01/BUG-06: the compensation adds no new @Transactional
+            // boundary, and the two extra calls are the same kind already used by the unlock
+            // path (updateProjectVisibility + deleteByProject), so pool/connection behavior is
+            // unchanged.
+            try {
+                backendApiClient.updateProjectVisibility(installation, projectState.projectId(), projectState.isPublic());
+                lockSnapshotStore.deleteByProject(projectState.workspaceId(), projectState.projectId());
+            } catch (RuntimeException rollbackErr) {
+                // Compensation itself failed. Bubble the original exception with the rollback
+                // error attached so operators see both. The forward transaction will still
+                // be rolled back by Spring on rethrow, so the DB snapshot does not survive.
+                // The project may remain half-locked in Clockify until a subsequent tick
+                // retries lockProject from a clean DB state.
+                log.warn("lockProject compensation failed for {} — project may be temporarily half-locked until retry",
+                        projectState.projectId(), rollbackErr);
+                lockErr.addSuppressed(rollbackErr);
+            }
+            throw lockErr;
         }
     }
 
