@@ -53,13 +53,18 @@
         // flight. Tag each call with a monotonically increasing generation and drop any
         // response whose generation is no longer current.
         var gen = ++loadGeneration;
-        Promise.allSettled([fetchJson('/api/context'), fetchJson('/api/guard/projects')])
+        Promise.allSettled([
+            fetchJson('/api/context'),
+            fetchJson('/api/guard/projects'),
+            fetchJson('/api/guard/events?limit=50')
+        ])
             .then(function (results) {
                 if (gen !== loadGeneration) {
                     return;
                 }
                 var context = results[0];
                 var projects = results[1];
+                var events = results[2];
                 var messages = [];
                 if (context.status === 'fulfilled') {
                     renderContext(context.value);
@@ -70,6 +75,11 @@
                     renderProjects(projects.value.projects || []);
                 } else {
                     messages.push('projects: ' + projects.reason.message);
+                }
+                if (events.status === 'fulfilled') {
+                    renderEvents(events.value.events || []);
+                } else {
+                    messages.push('events: ' + events.reason.message);
                 }
                 if (messages.length === 0) {
                     setStatus('Stop @ Estimate dashboard loaded.');
@@ -156,6 +166,43 @@
                 String(project.runningEntryCount || 0),
                 formatInstant(project.cutoffAt),
                 formatInstant(project.nextResetAt)
+            ];
+            var tr = document.createElement('tr');
+            cells.forEach(function (text) {
+                var td = document.createElement('td');
+                td.textContent = text;
+                tr.appendChild(td);
+            });
+            body.appendChild(tr);
+        });
+    }
+
+    function renderEvents(events) {
+        var body = document.getElementById('events-body');
+        var table = document.getElementById('events-table');
+        var empty = document.getElementById('events-empty');
+        if (!body || !table || !empty) {
+            return;
+        }
+        // FE-11: same DOM+textContent discipline as renderProjects so no field can escape HTML.
+        while (body.firstChild) {
+            body.removeChild(body.firstChild);
+        }
+        if (!events || events.length === 0) {
+            table.style.display = 'none';
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+        table.style.display = 'table';
+
+        events.forEach(function (event) {
+            var cells = [
+                formatInstant(event.createdAt),
+                event.eventType || '-',
+                event.guardReason || '-',
+                event.source || '-',
+                event.projectId || '—'
             ];
             var tr = document.createElement('tr');
             cells.forEach(function (text) {

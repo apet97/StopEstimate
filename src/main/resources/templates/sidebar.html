@@ -183,6 +183,24 @@
                 <tbody id="projects-body"></tbody>
             </table>
         </div>
+        <details id="events-panel" class="events-panel" style="margin-top: 16px;">
+            <summary>Recent events</summary>
+            <div class="table-wrap" style="margin-top: 12px;">
+                <table id="events-table" style="display:none;">
+                    <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Event</th>
+                        <th>Reason</th>
+                        <th>Source</th>
+                        <th>Project</th>
+                    </tr>
+                    </thead>
+                    <tbody id="events-body"></tbody>
+                </table>
+                <div id="events-empty" class="empty" style="display:none;">No recent events for this workspace.</div>
+            </div>
+        </details>
     </section>
 </div>
 <script src="/js/sidebar.js"></script>
