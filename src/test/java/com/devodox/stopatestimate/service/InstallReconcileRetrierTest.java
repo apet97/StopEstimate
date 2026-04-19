@@ -57,4 +57,33 @@ class InstallReconcileRetrierTest {
         verify(cutoffService, times(1)).reconcileKnownProjects(eq("ws-3"), anyString());
         verify(cutoffService, never()).reconcileKnownProjects(eq("ws-3"), eq("lifecycle:installed:retry-2"));
     }
+
+    // TEST-13: Thread.interrupt() during backoff must set the interrupt flag and return without
+    // ever invoking reconcileKnownProjects. Using Long.MAX_VALUE as the delay guarantees the sleep
+    // is still pending when the interrupt arrives.
+    @org.junit.jupiter.api.Test
+    void interruptDuringBackoffReturnsWithoutReconcileCall() throws InterruptedException {
+        ClockifyCutoffService cutoffService = Mockito.mock(ClockifyCutoffService.class);
+        InstallReconcileRetrier retrier = new InstallReconcileRetrier(
+                cutoffService, new long[]{Long.MAX_VALUE});
+
+        final boolean[] interruptFlagSeen = {false};
+        Thread worker = new Thread(() -> {
+            retrier.reconcileWithBackoff("ws-interrupt", "lifecycle:installed");
+            // Inside the worker, after reconcileWithBackoff returns: the code path restores the
+            // interrupt flag via Thread.currentThread().interrupt() before returning.
+            interruptFlagSeen[0] = Thread.currentThread().isInterrupted();
+        });
+        worker.start();
+        // Tiny sleep to guarantee the worker has entered Thread.sleep before we interrupt.
+        Thread.sleep(50);
+        worker.interrupt();
+        worker.join(2_000);
+
+        org.junit.jupiter.api.Assertions.assertFalse(worker.isAlive(),
+                "Worker must exit reconcileWithBackoff after interrupt — no retry loop progression");
+        verify(cutoffService, never()).reconcileKnownProjects(anyString(), anyString());
+        org.junit.jupiter.api.Assertions.assertTrue(interruptFlagSeen[0],
+                "reconcileWithBackoff must preserve the interrupt flag (Thread.currentThread().interrupt())");
+    }
 }
