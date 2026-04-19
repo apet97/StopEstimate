@@ -15,6 +15,8 @@ public interface WebhookRegistrationRepository extends JpaRepository<WebhookRegi
 
     List<WebhookRegistrationEntity> findAllByWorkspaceId(String workspaceId);
 
+    List<WebhookRegistrationEntity> findAllByWorkspaceIdIn(java.util.Collection<String> workspaceIds);
+
     Optional<WebhookRegistrationEntity> findByWorkspaceIdAndRoutePath(String workspaceId, String routePath);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

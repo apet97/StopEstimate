@@ -11,12 +11,16 @@ import org.springframework.security.crypto.encrypt.TextEncryptor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Installation persistence backed by PostgreSQL via JPA. Installation tokens and webhook tokens are
@@ -28,14 +32,17 @@ public class InstallationStore {
     private final InstallationRepository installationRepository;
     private final WebhookRegistrationRepository webhookRepository;
     private final TextEncryptor textEncryptor;
+    private final Clock clock;
 
     public InstallationStore(
             InstallationRepository installationRepository,
             WebhookRegistrationRepository webhookRepository,
-            TextEncryptor textEncryptor) {
+            TextEncryptor textEncryptor,
+            Clock clock) {
         this.installationRepository = installationRepository;
         this.webhookRepository = webhookRepository;
         this.textEncryptor = textEncryptor;
+        this.clock = clock;
     }
 
     @Transactional
@@ -85,9 +92,25 @@ public class InstallationStore {
 
     @Transactional(readOnly = true)
     public List<InstallationRecord> findAllRecords() {
-        List<InstallationRecord> result = new ArrayList<>();
-        for (InstallationEntity entity : installationRepository.findAll()) {
-            result.add(toRecord(entity));
+        // DB-01: single-query webhook fetch for all workspaces, grouped in memory. The
+        // previous shape issued N+1 SELECTs — one per workspace — via toRecord()'s default
+        // per-workspace query.
+        List<InstallationEntity> entities = installationRepository.findAll();
+        if (entities.isEmpty()) {
+            return List.of();
+        }
+        Set<String> workspaceIds = entities.stream()
+                .map(InstallationEntity::getWorkspaceId)
+                .collect(Collectors.toSet());
+        Map<String, List<WebhookRegistrationEntity>> webhooksByWorkspace = new HashMap<>();
+        for (WebhookRegistrationEntity wh : webhookRepository.findAllByWorkspaceIdIn(workspaceIds)) {
+            webhooksByWorkspace
+                    .computeIfAbsent(wh.getWorkspaceId(), k -> new ArrayList<>())
+                    .add(wh);
+        }
+        List<InstallationRecord> result = new ArrayList<>(entities.size());
+        for (InstallationEntity entity : entities) {
+            result.add(toRecord(entity, webhooksByWorkspace.getOrDefault(entity.getWorkspaceId(), List.of())));
         }
         return result;
     }
@@ -105,8 +128,12 @@ public class InstallationStore {
     }
 
     private InstallationRecord toRecord(InstallationEntity entity) {
+        return toRecord(entity, webhookRepository.findAllByWorkspaceId(entity.getWorkspaceId()));
+    }
+
+    private InstallationRecord toRecord(InstallationEntity entity, List<WebhookRegistrationEntity> webhooks) {
         Map<String, WebhookCredential> tokens = new LinkedHashMap<>();
-        for (WebhookRegistrationEntity wh : webhookRepository.findAllByWorkspaceId(entity.getWorkspaceId())) {
+        for (WebhookRegistrationEntity wh : webhooks) {
             tokens.put(wh.getRoutePath(), new WebhookCredential(
                     wh.getEventType(),
                     textEncryptor.decrypt(wh.getWebhookTokenEnc())));
@@ -117,7 +144,8 @@ public class InstallationStore {
         } catch (Exception e) {
             status = AddonStatus.ACTIVE;
         }
-        Instant installedAt = entity.getInstalledAt() == null ? Instant.now() : entity.getInstalledAt();
+        // BUG-10: use the injected Clock so tests get deterministic installedAt values.
+        Instant installedAt = entity.getInstalledAt() == null ? Instant.now(clock) : entity.getInstalledAt();
         Instant updatedAt = entity.getUpdatedAt() == null ? installedAt : entity.getUpdatedAt();
         String tokenPlain = entity.getInstallationTokenEnc() == null
                 ? null

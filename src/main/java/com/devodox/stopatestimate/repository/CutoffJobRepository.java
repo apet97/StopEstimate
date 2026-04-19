@@ -34,9 +34,16 @@ public interface CutoffJobRepository extends JpaRepository<CutoffJobEntity, Stri
     @Query("delete from CutoffJobEntity j where j.jobId = :jobId")
     int deleteByJobId(@Param("jobId") String jobId);
 
-    void deleteAllByWorkspaceId(String workspaceId);
+    @Modifying
+    @Transactional
+    @Query("delete from CutoffJobEntity j where j.workspaceId = :workspaceId")
+    void deleteAllByWorkspaceId(@Param("workspaceId") String workspaceId);
 
-    void deleteAllByWorkspaceIdAndProjectId(String workspaceId, String projectId);
+    @Modifying
+    @Transactional
+    @Query("delete from CutoffJobEntity j where j.workspaceId = :workspaceId and j.projectId = :projectId")
+    void deleteAllByWorkspaceIdAndProjectId(@Param("workspaceId") String workspaceId,
+                                             @Param("projectId") String projectId);
 
     @Modifying
     @Transactional
