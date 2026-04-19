@@ -83,7 +83,37 @@ public class SecurityConfig {
 
     @Bean
     public TextEncryptor textEncryptor() {
-        return Encryptors.text(addonProperties.getEncryptionKeyHex(), addonProperties.getEncryptionSaltHex());
+        // SEC-03: Encryptors.text is AES-256-CBC with a FIXED salt, which means the same
+        // plaintext always encrypts to the same ciphertext — an attacker with DB read
+        // access could detect duplicate installation/webhook tokens across workspaces
+        // without needing to break the cipher. Encryptors.delux is the non-deterministic
+        // TextEncryptor (random 16-byte IV per value) and is the right upgrade path.
+        // (Encryptors.stronger is GCM but returns a BytesEncryptor, not a TextEncryptor.)
+        //
+        // Existing DB rows are still in the legacy deterministic format. Read them
+        // transparently via a fallback decrypt so no one-shot migration is required for
+        // the switchover; new writes land in the non-deterministic format. Follow-up: a
+        // background re-encrypt job can convert legacy rows and we can drop the fallback.
+        TextEncryptor modern = Encryptors.delux(
+                addonProperties.getEncryptionKeyHex(), addonProperties.getEncryptionSaltHex());
+        TextEncryptor legacy = Encryptors.text(
+                addonProperties.getEncryptionKeyHex(), addonProperties.getEncryptionSaltHex());
+        return new TextEncryptor() {
+            @Override
+            public String encrypt(String text) {
+                return modern.encrypt(text);
+            }
+
+            @Override
+            public String decrypt(String encryptedText) {
+                try {
+                    return modern.decrypt(encryptedText);
+                } catch (RuntimeException modernFailure) {
+                    // Not in the new format; must be a pre-SEC-03 deterministic-CBC value.
+                    return legacy.decrypt(encryptedText);
+                }
+            }
+        };
     }
 
     /**
