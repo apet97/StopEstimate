@@ -52,6 +52,14 @@ public class InstallReconcileRetrier {
                 cutoffService.reconcileKnownProjects(workspaceId, source + ":retry-" + (i + 1));
                 log.debug("Backoff reconcile succeeded on attempt {} for {}", i + 1, source);
                 return;
+            } catch (ClockifyRequestAuthException authError) {
+                // RES-04: auth failures are not transient. The post-install token activation race
+                // surfaces as 401 on the *first* attempt and clears on retry, but a persistent 401
+                // means the token is dead and retrying just burns 17s before the scheduler tick
+                // can surface the error upstream.
+                log.warn("Auth failure on reconcile attempt {} for {}; handing off to scheduler",
+                        i + 1, source, authError);
+                return;
             } catch (RuntimeException e) {
                 if (i == backoffMs.length - 1) {
                     log.warn("Backoff reconcile attempt {} for {} failed; handing off to scheduler",
