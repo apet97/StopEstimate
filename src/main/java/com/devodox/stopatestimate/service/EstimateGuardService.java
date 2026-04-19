@@ -13,7 +13,6 @@ import com.devodox.stopatestimate.model.ProjectUsage;
 import com.devodox.stopatestimate.model.RateInfo;
 import com.devodox.stopatestimate.model.RunningTimeEntry;
 import com.devodox.stopatestimate.model.entity.GuardEventEntity;
-import com.devodox.stopatestimate.repository.CutoffJobRepository;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.store.CutoffJobStore;
 import com.devodox.stopatestimate.util.ClockifyJson;
@@ -56,7 +55,6 @@ public class EstimateGuardService {
     private final ProjectUsageService projectUsageService;
     private final ProjectLockService projectLockService;
     private final CutoffJobStore cutoffJobStore;
-    private final CutoffJobRepository cutoffJobRepository;
     private final GuardEventRepository guardEventRepository;
     private final ClockifyBackendApiClient backendApiClient;
     private final Clock clock;
@@ -66,7 +64,6 @@ public class EstimateGuardService {
             ProjectUsageService projectUsageService,
             ProjectLockService projectLockService,
             CutoffJobStore cutoffJobStore,
-            CutoffJobRepository cutoffJobRepository,
             GuardEventRepository guardEventRepository,
             ClockifyBackendApiClient backendApiClient,
             Clock clock) {
@@ -74,7 +71,6 @@ public class EstimateGuardService {
         this.projectUsageService = projectUsageService;
         this.projectLockService = projectLockService;
         this.cutoffJobStore = cutoffJobStore;
-        this.cutoffJobRepository = cutoffJobRepository;
         this.guardEventRepository = guardEventRepository;
         this.backendApiClient = backendApiClient;
         this.clock = clock;
@@ -562,11 +558,7 @@ public class EstimateGuardService {
             upsertJob(installation.workspaceId(), projectId, entry.userId(), entry.timeEntryId(), cutoffAt);
         }
 
-        if (activeTimeEntryIds.isEmpty()) {
-            cutoffJobStore.deleteByProject(installation.workspaceId(), projectId);
-        } else {
-            cutoffJobRepository.deleteStaleByProject(installation.workspaceId(), projectId, activeTimeEntryIds);
-        }
+        cutoffJobStore.deleteStale(installation.workspaceId(), projectId, activeTimeEntryIds);
     }
 
     private void upsertJob(String workspaceId, String projectId, String userId, String timeEntryId, Instant cutoffAt) {

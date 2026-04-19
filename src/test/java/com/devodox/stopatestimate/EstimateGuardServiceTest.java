@@ -14,7 +14,6 @@ import com.devodox.stopatestimate.model.ResetWindow;
 import com.devodox.stopatestimate.model.ResetWindowSchedule;
 import com.devodox.stopatestimate.model.RunningTimeEntry;
 import com.devodox.stopatestimate.model.entity.GuardEventEntity;
-import com.devodox.stopatestimate.repository.CutoffJobRepository;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.service.ClockifyLifecycleService;
 import com.devodox.stopatestimate.service.EstimateGuardService;
@@ -50,7 +49,6 @@ class EstimateGuardServiceTest {
     private ProjectLockService projectLockService;
     private ClockifyBackendApiClient backendApiClient;
     private CutoffJobStore cutoffJobStore;
-    private CutoffJobRepository cutoffJobRepository;
     private GuardEventRepository guardEventRepository;
     private EstimateGuardService service;
     private final Clock fixedClock = Clock.fixed(Instant.parse("2026-04-16T10:00:00Z"), ZoneOffset.UTC);
@@ -62,11 +60,10 @@ class EstimateGuardServiceTest {
         projectLockService = Mockito.mock(ProjectLockService.class);
         backendApiClient = Mockito.mock(ClockifyBackendApiClient.class);
         cutoffJobStore = Mockito.mock(CutoffJobStore.class);
-        cutoffJobRepository = Mockito.mock(CutoffJobRepository.class);
         guardEventRepository = Mockito.mock(GuardEventRepository.class);
         service = new EstimateGuardService(
                 lifecycleService, projectUsageService, projectLockService,
-                cutoffJobStore, cutoffJobRepository, guardEventRepository, backendApiClient, fixedClock);
+                cutoffJobStore, guardEventRepository, backendApiClient, fixedClock);
     }
 
     @Test

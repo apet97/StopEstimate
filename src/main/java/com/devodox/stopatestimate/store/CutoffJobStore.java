@@ -86,6 +86,15 @@ public class CutoffJobStore {
     }
 
     @Transactional
+    public int deleteStale(String workspaceId, String projectId, java.util.Collection<String> keepTimeEntryIds) {
+        if (keepTimeEntryIds == null || keepTimeEntryIds.isEmpty()) {
+            repository.deleteAllByWorkspaceIdAndProjectId(workspaceId, projectId);
+            return 0;
+        }
+        return repository.deleteStaleByProject(workspaceId, projectId, keepTimeEntryIds);
+    }
+
+    @Transactional
     public void deleteByWorkspaceId(String workspaceId) {
         repository.deleteAllByWorkspaceId(workspaceId);
     }
