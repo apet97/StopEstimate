@@ -29,6 +29,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
@@ -39,6 +41,13 @@ import java.util.Set;
 
 @Service
 public class EstimateGuardService {
+    // Clockify's stop-timer endpoint documents yyyy-MM-dd'T'HH:mm:ssZ in its OpenAPI examples.
+    // Instant.toString() emits variable precision (seconds to nanos depending on the instant).
+    // Pin to millisecond precision so request bodies are stable and log output is readable.
+    private static final DateTimeFormatter CLOCKIFY_TIMESTAMP = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+            .withZone(ZoneOffset.UTC);
+
     private final ClockifyLifecycleService lifecycleService;
     private final ProjectUsageService projectUsageService;
     private final ProjectLockService projectLockService;
@@ -225,7 +234,7 @@ public class EstimateGuardService {
             if (cutoffJobStore.deleteByJobId(job.jobId()) == 0) {
                 continue;
             }
-            backendApiClient.stopRunningTimer(installation, job.userId(), job.cutoffAt().toString());
+            backendApiClient.stopRunningTimer(installation, job.userId(), CLOCKIFY_TIMESTAMP.format(job.cutoffAt()));
             recordEvent(job.workspaceId(), job.projectId(), GuardEventType.TIMER_STOPPED, reason, source + ":due-job", null);
             projectLockService.lockProject(installation, projectState, reason);
             recordEvent(job.workspaceId(), job.projectId(), GuardEventType.LOCKED, reason, source + ":due-job", null);
@@ -518,7 +527,7 @@ public class EstimateGuardService {
         Set<String> users = new LinkedHashSet<>();
         for (RunningTimeEntry runningEntry : runningEntries) {
             if (runningEntry.userId() != null && users.add(runningEntry.userId())) {
-                backendApiClient.stopRunningTimer(installation, runningEntry.userId(), cutoffAt.toString());
+                backendApiClient.stopRunningTimer(installation, runningEntry.userId(), CLOCKIFY_TIMESTAMP.format(cutoffAt));
             }
         }
     }
