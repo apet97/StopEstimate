@@ -81,7 +81,7 @@ public record ResetWindowSchedule(
 					start = start.minusYears(1);
 				}
 				ZonedDateTime nextYear = start.plusYears(1);
-				Month nextMonthValue = month == null ? nextYear.getMonth() : month;
+				Month nextMonthValue = month == null ? Month.JANUARY : month;
 				end = nextYear.withMonth(nextMonthValue.getValue())
 						.withDayOfMonth(Math.min(configuredDay, nextMonthValue.length(nextYear.toLocalDate().isLeapYear())))
 						.withHour(hourOrDefault())

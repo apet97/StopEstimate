@@ -12,6 +12,9 @@ public final class ClockifyApiUrls {
     }
 
     public static String join(String baseUrl, String path) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalArgumentException("Clockify baseUrl must not be null or blank");
+        }
         String normalizedBase = trimTrailingSlash(baseUrl);
         String normalizedPath = path.startsWith("/") ? path : "/" + path;
         return normalizedBase + normalizedPath;
