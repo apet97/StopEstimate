@@ -165,7 +165,7 @@ class EstimateGuardServiceTest {
                 true,
                 List.of(),
                 List.of(),
-                new RateInfo(BigDecimal.valueOf(1000), "USD"),
+                RateInfo.of(BigDecimal.valueOf(1000), "USD"),
                 RateInfo.empty(),
                 new ProjectCaps(true, 7_200_000L, "MONTHLY", false, true, BigDecimal.valueOf(50_000), "MONTHLY", false, ResetWindowSchedule.none()));
     }
@@ -245,7 +245,7 @@ class EstimateGuardServiceTest {
         // that's been alive long enough that elapsed billable amount exceeds the cap.
         ProjectState state = new ProjectState(
                 "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
-                new RateInfo(BigDecimal.valueOf(1000), "USD"),
+                RateInfo.of(BigDecimal.valueOf(1000), "USD"),
                 RateInfo.empty(),
                 new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(60), "MONTHLY", false, ResetWindowSchedule.none()));
         when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
@@ -276,7 +276,7 @@ class EstimateGuardServiceTest {
         // Project state: hourlyRate set, costRate empty. Budget cap $100, no time cap.
         ProjectState state = new ProjectState(
                 "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
-                new RateInfo(BigDecimal.valueOf(60), "USD"),
+                RateInfo.of(BigDecimal.valueOf(60), "USD"),
                 RateInfo.empty(),
                 new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(100), "MONTHLY", false, ResetWindowSchedule.none()));
         when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
@@ -307,7 +307,7 @@ class EstimateGuardServiceTest {
         when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
         ProjectState state = new ProjectState(
                 "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
-                new RateInfo(BigDecimal.valueOf(60), "USD"),
+                RateInfo.of(BigDecimal.valueOf(60), "USD"),
                 RateInfo.empty(),
                 new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(100), "MONTHLY", false, ResetWindowSchedule.none()));
         when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
@@ -336,7 +336,7 @@ class EstimateGuardServiceTest {
         // it, remaining would stay $60 → cutoffAt = entry.start + 90 s).
         ProjectState state = new ProjectState(
                 "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
-                new RateInfo(BigDecimal.valueOf(3600), "USD"),
+                RateInfo.of(BigDecimal.valueOf(3600), "USD"),
                 RateInfo.empty(),
                 new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(60), "MONTHLY", false, ResetWindowSchedule.none()));
         when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);
@@ -367,7 +367,7 @@ class EstimateGuardServiceTest {
         // Because billable=false, the budget branch must add no candidate and no lock occurs.
         ProjectState state = new ProjectState(
                 "ws-1", "project-1", "Project 1", true, List.of(), List.of(),
-                new RateInfo(BigDecimal.valueOf(120), "USD"),
+                RateInfo.of(BigDecimal.valueOf(120), "USD"),
                 RateInfo.empty(),
                 new ProjectCaps(false, 0L, "MONTHLY", false, true, BigDecimal.valueOf(10), "MONTHLY", false, ResetWindowSchedule.none()));
         when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(state);

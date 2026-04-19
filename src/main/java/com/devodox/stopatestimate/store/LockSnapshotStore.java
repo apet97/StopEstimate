@@ -138,6 +138,7 @@ public class LockSnapshotStore {
         JsonObject obj = new JsonObject();
         obj.addProperty("amount", rate.amount() == null ? null : rate.amount().toPlainString());
         obj.addProperty("currency", rate.currency());
+        obj.addProperty("configured", rate.configured());
         return obj;
     }
 
@@ -152,7 +153,12 @@ public class LockSnapshotStore {
         String currency = o.has("currency") && !o.get("currency").isJsonNull()
                 ? o.get("currency").getAsString()
                 : null;
-        return new RateInfo(amount, currency);
+        // Older snapshots predate the `configured` flag; infer it from amount presence
+        // so legacy rows stay equivalent under the new present() semantics.
+        boolean configured = o.has("configured") && !o.get("configured").isJsonNull()
+                ? o.get("configured").getAsBoolean()
+                : amount != null;
+        return new RateInfo(amount, currency, configured);
     }
 
     private static String serializeUserGroups(List<String> ids) {

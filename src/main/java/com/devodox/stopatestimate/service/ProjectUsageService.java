@@ -172,9 +172,11 @@ public class ProjectUsageService {
         if (object == null) {
             return RateInfo.empty();
         }
+        boolean hasAmount = object.has("amount");
         return new RateInfo(
-                object.has("amount") ? ClockifyJson.decimal(object.get("amount")) : BigDecimal.ZERO,
-                ClockifyJson.string(object, "currency").orElse(null));
+                hasAmount ? ClockifyJson.decimal(object.get("amount")) : BigDecimal.ZERO,
+                ClockifyJson.string(object, "currency").orElse(null),
+                hasAmount);
     }
 
     // Package-private so ProjectUsageServiceTest can assert the emitted filter JSON does not
