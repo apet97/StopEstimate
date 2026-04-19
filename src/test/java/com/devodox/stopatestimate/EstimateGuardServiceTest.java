@@ -604,6 +604,35 @@ class EstimateGuardServiceTest {
 
     // ----- TEST-05: caps removed → snapshot unlock with NO_ACTIVE_CAPS reason -----
 
+    // ----- TEST-09: immediateCutoff uses entry.start when cap already breached excluding this timer -----
+
+    // When the source is a NEW_TIMER_STARTED webhook and tracked usage (minus the elapsed portion
+    // of the freshly-started timer) already exceeds the cap, the cutoff timestamp handed to
+    // stopRunningTimer must be the entry's start time so Clockify records zero additional time
+    // for this entry — not `now`, which would keep the elapsed portion logged.
+    @Test
+    void immediateCutoffUsesEntryStartWhenCapAlreadyBreachedExcludingCurrentTimer() {
+        InstallationRecord installation = installation(true, AddonStatus.ACTIVE, "ENFORCE");
+        when(lifecycleService.findInstallation("ws-1")).thenReturn(Optional.of(installation));
+        when(projectUsageService.loadProjectState(any(), anyString())).thenReturn(projectStateWithTimeCap(60_000L));
+        // Tracked = 70s (> cap 60s), running entry started 10s ago → trackedBeforeCurrent = 60s
+        // >= cap 60s, so immediateCutoff returns entry.start rather than now.
+        when(projectUsageService.loadProjectUsage(any(), any(), any())).thenReturn(new ProjectUsage(
+                new ResetWindow(Instant.EPOCH, fixedClock.instant(), null),
+                70_000L, BigDecimal.ZERO, BigDecimal.ZERO));
+        Instant entryStart = fixedClock.instant().minusSeconds(10);
+        when(projectUsageService.loadRunningEntries(any(), anyString())).thenReturn(List.of(
+                new RunningTimeEntry("ws-1", "project-1", "user-1", "te-1", entryStart, true)));
+
+        service.reconcileProject("ws-1", "project-1", "webhook:NEW_TIMER_STARTED", new JsonObject());
+
+        ArgumentCaptor<String> timestampCaptor = ArgumentCaptor.forClass(String.class);
+        verify(backendApiClient).stopRunningTimer(any(), anyString(), timestampCaptor.capture());
+        // CLOCKIFY_TIMESTAMP pattern: yyyy-MM-dd'T'HH:mm:ss.SSS'Z'. entryStart = now - 10s.
+        // fixed clock is 2026-04-16T10:00:00Z → entryStart = 2026-04-16T09:59:50.000Z.
+        assertThat(timestampCaptor.getValue()).isEqualTo("2026-04-16T09:59:50.000Z");
+    }
+
     // ----- TEST-07: lockNow path when already locked skips lock-attempt churn -----
 
     // cutoffPlan returns lockNow=true (tracked + elapsed exceeds cap) with reason TIME_CAP_REACHED,
