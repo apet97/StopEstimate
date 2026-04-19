@@ -228,7 +228,9 @@ public class ProjectUsageService {
         return filter;
     }
 
-    private long extractSummaryTotalTime(JsonObject summary) {
+    // Package-private so ProjectUsageServiceTest can assert the parsing contract directly without
+    // standing up the full Reports client pipeline.
+    long extractSummaryTotalTime(JsonObject summary) {
         // Clockify summary response shape: {"totals":[{"totalTime":11962, "entriesCount":7, ...}], ...}
         // totalTime is in seconds; convert to milliseconds to match timeLimitMs.
         long totalSeconds = 0L;

@@ -108,6 +108,50 @@ class TokenVerificationServiceTest {
                 .hasMessageContaining("signature");
     }
 
+    // ----- TEST-08: normalizeClaims legacy aliases (activeWs → workspaceId, apiUrl → backendUrl,
+    // user → userId). Each claim is the legacy Clockify spelling; the service must expose the
+    // canonical name so downstream consumers only ever need one path. -----
+
+    @Test
+    void activeWsAliasIsMappedToWorkspaceId() {
+        Map<String, Object> claims = TestJwtFactory.baseValidClaims("ws-1");
+        claims.remove("workspaceId");
+        claims.put("activeWs", "ws-alias");
+        String token = TestJwtFactory.signClaims(claims);
+
+        Map<String, Object> resolved = service(Clock.systemUTC()).verifyAndParseClaims(token);
+
+        assertThat(resolved.get("workspaceId")).isEqualTo("ws-alias");
+    }
+
+    @Test
+    void apiUrlAliasIsMappedAndNormalizedToBackendUrl() {
+        Map<String, Object> claims = TestJwtFactory.baseValidClaims("ws-1");
+        claims.remove("backendUrl");
+        claims.put("apiUrl", "https://api.clockify.me/api");
+        String token = TestJwtFactory.signClaims(claims);
+
+        Map<String, Object> resolved = service(Clock.systemUTC()).verifyAndParseClaims(token);
+
+        // ClockifyUrlNormalizer is applied on the normalized value — at minimum the resulting URL
+        // must be https and keep the clockify.me host.
+        String backendUrl = (String) resolved.get("backendUrl");
+        assertThat(backendUrl).isNotNull();
+        assertThat(backendUrl).startsWith("https://");
+        assertThat(backendUrl).contains("clockify.me");
+    }
+
+    @Test
+    void userAliasIsMappedToUserId() {
+        Map<String, Object> claims = TestJwtFactory.baseValidClaims("ws-1");
+        claims.put("user", "legacy-user-id");
+        String token = TestJwtFactory.signClaims(claims);
+
+        Map<String, Object> resolved = service(Clock.systemUTC()).verifyAndParseClaims(token);
+
+        assertThat(resolved.get("userId")).isEqualTo("legacy-user-id");
+    }
+
     private TokenVerificationService service(Clock clock) {
         return new TokenVerificationService(objectMapper, addonProperties, clock);
     }
