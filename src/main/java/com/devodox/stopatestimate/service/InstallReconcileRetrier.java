@@ -3,16 +3,20 @@ package com.devodox.stopatestimate.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
- * Retries the first post-install reconcile a few times on short delays. Clockify's API gateway may
- * not have activated a freshly-minted installation token by the time we receive the INSTALLED
- * lifecycle callback, so the first outbound call often 401s. Without this the next successful
- * reconcile is only guaranteed after the 60s scheduler tick, which is a long time to stare at a
- * blank sidebar. The method is {@code @Async} so the HTTP handler returns 200 immediately.
+ * Listens for {@link LifecycleReconcileRequestedEvent} published after a lifecycle transaction
+ * commits, runs one reconcile attempt, and — when the event asks for it — retries on short
+ * delays if the first attempt throws.
+ *
+ * <p>The retry window exists because Clockify's API gateway may not have activated a freshly
+ * minted installation token by the time the INSTALLED lifecycle callback completes. Without
+ * the retries, the next successful reconcile is only guaranteed after the 60s scheduler tick,
+ * which is a long time to stare at a blank sidebar.
  */
 @Component
 public class InstallReconcileRetrier {
@@ -22,23 +26,54 @@ public class InstallReconcileRetrier {
     // retries cannot race the scheduler's first tick.
     private static final long[] DEFAULT_BACKOFF_MS = {2_000L, 5_000L, 10_000L};
 
-    private final ClockifyCutoffService cutoffService;
+    private final EstimateGuardService estimateGuardService;
     private final long[] backoffMs;
 
     @Autowired
-    public InstallReconcileRetrier(@Lazy ClockifyCutoffService cutoffService) {
-        // @Lazy breaks the circular dependency:
-        // ClockifyLifecycleService → InstallReconcileRetrier → ClockifyCutoffService
-        //                            → EstimateGuardService → ClockifyLifecycleService.
-        this(cutoffService, DEFAULT_BACKOFF_MS);
+    public InstallReconcileRetrier(EstimateGuardService estimateGuardService) {
+        this(estimateGuardService, DEFAULT_BACKOFF_MS);
     }
 
     // Package-private for tests that need short delays so the suite stays fast.
-    InstallReconcileRetrier(ClockifyCutoffService cutoffService, long[] backoffMs) {
-        this.cutoffService = cutoffService;
+    InstallReconcileRetrier(EstimateGuardService estimateGuardService, long[] backoffMs) {
+        this.estimateGuardService = estimateGuardService;
         this.backoffMs = backoffMs;
     }
 
+    /**
+     * Fires after the lifecycle @Transactional method commits. For install-style events it runs
+     * the full backoff schedule (break on first success — the common case finishes after the
+     * 2s attempt). For status/settings updates, runs a single attempt and defers failures to
+     * the scheduler so the HTTP handler returns 200 quickly.
+     */
+    @Async("lifecycleReconcileExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onLifecycleReconcileRequested(LifecycleReconcileRequestedEvent event) {
+        String workspaceId = event.workspaceId();
+        String source = event.source();
+        if (event.useBackoffOnFailure()) {
+            reconcileWithBackoff(workspaceId, source);
+            return;
+        }
+        try {
+            estimateGuardService.reconcileKnownProjects(workspaceId, source);
+            log.debug("Post-lifecycle reconcile succeeded for {} ({})", workspaceId, source);
+        } catch (RuntimeException e) {
+            log.warn("Post-lifecycle reconcile failed for {} ({}); deferring to scheduler tick",
+                    workspaceId, source, e);
+        }
+    }
+
+    /**
+     * Retries {@code reconcileKnownProjects} with the configured backoff schedule. Visible for
+     * direct invocation from tests so the retry loop can be exercised without publishing an
+     * event.
+     *
+     * <p>Auth failures ({@link ClockifyRequestAuthException}) consume the full backoff window
+     * because the post-install token-activation race is the whole reason this retrier exists.
+     * A persistent 401 surfaces on the last attempt's WARN log; the 60s scheduler tick is the
+     * final backstop for the "token truly dead" case.
+     */
     @Async("lifecycleReconcileExecutor")
     public void reconcileWithBackoff(String workspaceId, String source) {
         for (int i = 0; i < backoffMs.length; i++) {
@@ -49,16 +84,8 @@ public class InstallReconcileRetrier {
                 return;
             }
             try {
-                cutoffService.reconcileKnownProjects(workspaceId, source + ":retry-" + (i + 1));
+                estimateGuardService.reconcileKnownProjects(workspaceId, source + ":retry-" + (i + 1));
                 log.debug("Backoff reconcile succeeded on attempt {} for {}", i + 1, source);
-                return;
-            } catch (ClockifyRequestAuthException authError) {
-                // RES-04: auth failures are not transient. The post-install token activation race
-                // surfaces as 401 on the *first* attempt and clears on retry, but a persistent 401
-                // means the token is dead and retrying just burns 17s before the scheduler tick
-                // can surface the error upstream.
-                log.warn("Auth failure on reconcile attempt {} for {}; handing off to scheduler",
-                        i + 1, source, authError);
                 return;
             } catch (RuntimeException e) {
                 if (i == backoffMs.length - 1) {

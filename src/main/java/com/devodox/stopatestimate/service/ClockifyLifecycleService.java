@@ -16,7 +16,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,12 +35,11 @@ public class ClockifyLifecycleService {
     private final InstallationStore installationStore;
     private final LockSnapshotStore lockSnapshotStore;
     private final CutoffJobStore cutoffJobStore;
-    private final ClockifyCutoffService cutoffService;
-    private final InstallReconcileRetrier installReconcileRetrier;
     private final ProjectLockService projectLockService;
     private final AddonProperties addonProperties;
     private final Map<String, String> webhookPathToEvent;
     private final Clock clock;
+    private final ApplicationEventPublisher eventPublisher;
     private final Gson gson = new Gson();
 
     public ClockifyLifecycleService(
@@ -48,22 +47,20 @@ public class ClockifyLifecycleService {
             InstallationStore installationStore,
             LockSnapshotStore lockSnapshotStore,
             CutoffJobStore cutoffJobStore,
-            @Lazy ClockifyCutoffService cutoffService,
-            InstallReconcileRetrier installReconcileRetrier,
             ProjectLockService projectLockService,
             AddonProperties addonProperties,
             Map<String, String> webhookPathToEvent,
-            Clock clock) {
+            Clock clock,
+            ApplicationEventPublisher eventPublisher) {
         this.tokenVerificationService = tokenVerificationService;
         this.installationStore = installationStore;
         this.lockSnapshotStore = lockSnapshotStore;
         this.cutoffJobStore = cutoffJobStore;
-        this.cutoffService = cutoffService;
-        this.installReconcileRetrier = installReconcileRetrier;
         this.projectLockService = projectLockService;
         this.addonProperties = addonProperties;
         this.webhookPathToEvent = webhookPathToEvent;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -110,13 +107,12 @@ public class ClockifyLifecycleService {
             suppressEnforcementQuietly(installation);
             return;
         }
-        // Reconcile is best-effort: Clockify's API gateway may not have activated the installation
-        // token yet when we receive this callback, so an outbound 401 is expected on some platforms.
-        // First try synchronously (most installs succeed immediately); if that throws, an @Async
-        // retrier takes over with 2s/5s/10s backoff. The scheduler's 60s tick remains a final
-        // backstop. Lifecycle handlers must always return 200.
-        reconcileQuietly(workspaceId, "lifecycle:installed");
-        installReconcileRetrier.reconcileWithBackoff(workspaceId, "lifecycle:installed");
+        // Publish after commit so the reconcile listener sees the persisted installation.
+        // Clockify's API gateway may not have activated the installation token by the time
+        // this callback arrives; the listener attempts reconcile once and falls back to a
+        // 2s/5s/10s async backoff on failure. Scheduler 60s tick remains the final backstop.
+        eventPublisher.publishEvent(new LifecycleReconcileRequestedEvent(
+                workspaceId, "lifecycle:installed", true));
     }
 
     @Transactional
@@ -154,7 +150,9 @@ public class ClockifyLifecycleService {
             suppressEnforcementQuietly(updated);
             return;
         }
-        reconcileQuietly(workspaceId, "lifecycle:status-changed");
+        // No backoff here — the token is known-good by now; defer failures to the scheduler.
+        eventPublisher.publishEvent(new LifecycleReconcileRequestedEvent(
+                workspaceId, "lifecycle:status-changed", false));
     }
 
     @Transactional
@@ -184,15 +182,8 @@ public class ClockifyLifecycleService {
             suppressEnforcementQuietly(updated);
             return;
         }
-        reconcileQuietly(workspaceId, "lifecycle:settings-updated");
-    }
-
-    private void reconcileQuietly(String workspaceId, String source) {
-        try {
-            cutoffService.reconcileKnownProjects(workspaceId, source);
-        } catch (RuntimeException e) {
-            log.warn("Initial reconcile for {} deferred to scheduler tick", source, e);
-        }
+        eventPublisher.publishEvent(new LifecycleReconcileRequestedEvent(
+                workspaceId, "lifecycle:settings-updated", false));
     }
 
     private void suppressEnforcementQuietly(InstallationRecord installation) {
@@ -219,7 +210,10 @@ public class ClockifyLifecycleService {
     }
 
     private void suppressEnforcement(InstallationRecord installation) {
-        cutoffService.cancelWorkspaceJobs(installation.workspaceId());
+        // cutoffJobStore.deleteByWorkspaceId is the single operation EstimateGuardService's
+        // cancelWorkspaceJobs performed — call it directly to avoid reintroducing the
+        // lifecycle→guard cycle.
+        cutoffJobStore.deleteByWorkspaceId(installation.workspaceId());
         projectLockService.unlockWorkspaceProjects(installation);
     }
 

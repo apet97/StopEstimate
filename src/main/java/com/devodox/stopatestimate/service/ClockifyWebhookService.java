@@ -29,18 +29,18 @@ public class ClockifyWebhookService {
 
     private final TokenVerificationService tokenVerificationService;
     private final ClockifyLifecycleService lifecycleService;
-    private final ClockifyCutoffService cutoffService;
+    private final EstimateGuardService estimateGuardService;
     private final WebhookEventRepository webhookEventRepository;
     private final Gson gson = new Gson();
 
     public ClockifyWebhookService(
             TokenVerificationService tokenVerificationService,
             ClockifyLifecycleService lifecycleService,
-            ClockifyCutoffService cutoffService,
+            EstimateGuardService estimateGuardService,
             WebhookEventRepository webhookEventRepository) {
         this.tokenVerificationService = tokenVerificationService;
         this.lifecycleService = lifecycleService;
-        this.cutoffService = cutoffService;
+        this.estimateGuardService = estimateGuardService;
         this.webhookEventRepository = webhookEventRepository;
     }
 
@@ -93,9 +93,9 @@ public class ClockifyWebhookService {
 
         String projectId = extractProjectId(expectedEventType, payload).orElse(null);
         if (projectId != null) {
-            cutoffService.reconcileProject(workspaceId, projectId, "webhook:" + expectedEventType, payload);
+            estimateGuardService.reconcileProject(workspaceId, projectId, "webhook:" + expectedEventType, payload);
         } else {
-            cutoffService.reconcileKnownProjects(workspaceId, "webhook:" + expectedEventType);
+            estimateGuardService.reconcileKnownProjects(workspaceId, "webhook:" + expectedEventType);
         }
     }
 
