@@ -374,8 +374,10 @@ class StopAtEstimateApplicationTests {
         cost.addProperty("amount", 1000);
         amounts.add(cost);
         reportTotals.add("amounts", amounts);
+        JsonArray summaryTotals = new JsonArray();
+        summaryTotals.add(reportTotals);
         JsonObject summaryReport = new JsonObject();
-        summaryReport.add("totals", reportTotals);
+        summaryReport.add("totals", summaryTotals);
 
         JsonObject expenseTotals = new JsonObject();
         expenseTotals.addProperty("totalAmount", 100);
