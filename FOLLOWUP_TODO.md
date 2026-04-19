@@ -4,7 +4,11 @@ Context: `SONNETTODO.md` is the original 84-finding audit. The first wave (P0+P1
 
 All 71 existing tests pass today. Land each fix below as its own commit; re-run `./mvnw test` after every commit.
 
-**Batch 1 status (2026-04-19):** landed on `main` in commits `2048e36..8a32c57` (7 commits, 71/71 tests green after each). Covered: BUG-03, BUG-04 narrow, BUG-07, BUG-09, RES-09, SEC-06, SEC-08, RES-05, RES-11. Remaining batches (2–6) are still open; see "Execution plan" section at the bottom.
+**Batch 1 status (2026-04-19):** landed on `main` in commits `2048e36..8a32c57` (7 commits, 71/71 tests green after each). Covered: BUG-03, BUG-04 narrow, BUG-07, BUG-09, RES-09, SEC-06, SEC-08, RES-05, RES-11.
+
+**Batch 2 status (2026-04-19):** landed in commit `42dafce`. Covered: RES-01, RES-02, RES-03, RES-04, RES-06. 71/71 tests green.
+
+**Batch 3/4 partial (2026-04-19):** landed in commit `961cc7d`. Covered: DB-07, DB-10, FE-10. Remaining Batch 3 (BUG-05, DB-06 with V1_0_8 migration, DB-08, DB-09) and Batch 4 (FE-11), plus Batch 5 (SEC-03 drain) and Batch 6 (TEST-01..13 + jacoco/dependency-check) still open.
 
 **DO NOT TOUCH — verified as wrong or by-design:**
 - **SEC-01** (webhook signature check). `ClockifyWebhookService.handleWebhook` already performs full RS256 verification at line 65 via `TokenVerificationService.verifyAndParseClaims`, with `workspaceId`/`addonId` claim checks on lines 69–80, and the per-route `constantTimeEquals` at line 81 is the documented defence-in-depth step #3. The audit misread `verifyStoredWebhookToken` in isolation. Confirmed against canonical-docs `01-canonical-docs/build/manifest/webhooks.md`.
