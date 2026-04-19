@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!--
+        OWASP dependency-check false-positive suppressions.
+        Wired by the `security-scan` Maven profile (pom.xml).
+        Add per-CVE entries here as false positives surface; include a short
+        justification for each.
+    -->
+</suppressions>

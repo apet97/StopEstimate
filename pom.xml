@@ -279,5 +279,44 @@
                 </plugins>
             </build>
         </profile>
+
+        <!--
+            Security-scan profile. Opt-in so local `./mvnw test` stays fast.
+            Run: `./mvnw -P security-scan verify`.
+            failBuildOnCVSS=7 blocks on CVSS >= 7.0 vulnerabilities. False positives go
+            into dependency-check-suppressions.xml at the project root.
+            First run downloads the NVD feed (~several minutes). An NVD API key
+            (nvdApiKey / NVD_API_KEY) speeds this up once we hit rate limits.
+        -->
+        <profile>
+            <id>security-scan</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <version>11.1.0</version>
+                        <configuration>
+                            <failBuildOnCVSS>7</failBuildOnCVSS>
+                            <suppressionFiles>
+                                <suppressionFile>${project.basedir}/dependency-check-suppressions.xml</suppressionFile>
+                            </suppressionFiles>
+                            <formats>
+                                <format>HTML</format>
+                                <format>XML</format>
+                            </formats>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 </project>
