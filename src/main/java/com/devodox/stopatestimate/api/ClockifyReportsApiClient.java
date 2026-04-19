@@ -49,46 +49,70 @@ public class ClockifyReportsApiClient {
             log.trace("reports POST path={} bytes={}", path, requestBodyStr.length());
         }
         try {
-            String responseBody = restClient
-                    .post()
-                    .uri(url)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .header("X-Addon-Token", addonToken)
-                    .body(requestBodyStr)
-                    .retrieve()
-                    .body(String.class);
-
-            if (log.isTraceEnabled()) {
-                log.trace("reports response path={} bytes={}", path, responseBody == null ? 0 : responseBody.length());
-            }
-
-            if (responseBody == null || responseBody.isBlank()) {
-                return new JsonObject();
-            }
-
-            JsonElement element = JsonParser.parseString(responseBody);
-            return element.isJsonObject() ? element.getAsJsonObject() : new JsonObject();
+            return doPostAndParse(url, addonToken, requestBodyStr, path);
         } catch (RestClientResponseException e) {
-            // Never log the response body — reports contain workspace financial and time data.
-            int code = e.getStatusCode().value();
-            log.warn("Clockify reports call failed path={} status={}", path, code);
-            // RES-02: differentiate status codes so callers can react correctly instead of retrying
-            // permanent failures or aborting transient ones. 429 is transient (wait for next tick);
-            // 401/403 are auth/permission failures that will not recover without user action.
-            if (code == 429) {
-                throw new ClockifyApiException("Reports rate limited (429); will retry on next tick", e);
+            if (e.getStatusCode().value() == 429) {
+                long sleepMs = ClockifyBackendApiClient.retryAfterMillis(e);
+                log.info("Clockify reports returned 429 for {}; retrying once after {}ms", path, sleepMs);
+                try {
+                    Thread.sleep(sleepMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw classifyReports(e, path);
+                }
+                try {
+                    return doPostAndParse(url, addonToken, requestBodyStr, path);
+                } catch (RestClientResponseException retryEx) {
+                    throw classifyReports(retryEx, path);
+                } catch (RuntimeException retryEx) {
+                    throw new ClockifyApiException("Clockify reports call failed", retryEx);
+                }
             }
-            if (code == 401) {
-                throw new com.devodox.stopatestimate.service.ClockifyRequestAuthException(
-                        "Reports token rejected", e);
-            }
-            if (code == 403) {
-                throw new com.devodox.stopatestimate.service.ClockifyBackendForbiddenException(
-                        "Reports forbade the request", e);
-            }
-            throw new ClockifyApiException("Reports call failed with " + code, e);
+            throw classifyReports(e, path);
         } catch (RuntimeException e) {
             throw new ClockifyApiException("Clockify reports call failed", e);
         }
+    }
+
+    private JsonObject doPostAndParse(String url, String addonToken, String requestBodyStr, String path) {
+        String responseBody = restClient
+                .post()
+                .uri(url)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Addon-Token", addonToken)
+                .body(requestBodyStr)
+                .retrieve()
+                .body(String.class);
+
+        if (log.isTraceEnabled()) {
+            log.trace("reports response path={} bytes={}", path, responseBody == null ? 0 : responseBody.length());
+        }
+
+        if (responseBody == null || responseBody.isBlank()) {
+            return new JsonObject();
+        }
+
+        JsonElement element = JsonParser.parseString(responseBody);
+        return element.isJsonObject() ? element.getAsJsonObject() : new JsonObject();
+    }
+
+    private static RuntimeException classifyReports(RestClientResponseException e, String path) {
+        // Never log the response body — reports contain workspace financial and time data.
+        int code = e.getStatusCode().value();
+        log.warn("Clockify reports call failed path={} status={}", path, code);
+        // RES-02: differentiate status codes. One bounded Retry-After retry was already attempted
+        // for 429 above; a second 429 defers to the scheduler. 401/403 are non-retryable.
+        if (code == 429) {
+            return new ClockifyApiException("Reports rate limited (429) after one retry; deferring to scheduler", e);
+        }
+        if (code == 401) {
+            return new com.devodox.stopatestimate.service.ClockifyRequestAuthException(
+                    "Reports token rejected", e);
+        }
+        if (code == 403) {
+            return new com.devodox.stopatestimate.service.ClockifyBackendForbiddenException(
+                    "Reports forbade the request", e);
+        }
+        return new ClockifyApiException("Reports call failed with " + code, e);
     }
 }
