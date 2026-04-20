@@ -4,6 +4,29 @@ Generated 2026-04-17 from 10 parallel Opus subagents (security, services, contro
 
 ---
 
+## 2026-04-20 reliability / hygiene pass — follow-ups (deferred)
+
+- [ ] **[MED]** Workspace timezone end-to-end. Replace the hardcoded `"timeZone": "UTC"` in `ProjectUsageService.baseReportFilter` with the workspace's actual timezone so cap resets line up with workspace-local midnight (DST + non-UTC workspaces). Requires: nullable `timezone` column on `installations` via a new Flyway migration, an extra field + secondary constructor on `InstallationRecord`, a `getWorkspace()` call in `ClockifyBackendApiClient`, and a populate-after-commit step in the `InstallReconcileRetrier` listener (so the lifecycle handler itself stays free of extra Clockify round trips). Touches ~10 call sites that construct `InstallationRecord`. Scoped out of the 2026-04-20 pass because every callsite needs a migration note — ship as a standalone commit.
+- [ ] **[MED]** Promote the risky flows to Testcontainers integration tests (`CutoffJobRepositoryIT`, `ClockifyLifecycleServiceIT`, `WebhookAuthDedupIT`, `CutoffJobSchedulerIT`). The Failsafe/`*IT.java` split is already in `pom.xml`; what's missing is the Testcontainers Postgres module wiring and the four new IT classes. The existing Mockito-driven unit tests remain fast; the IT suite is additive.
+
+## 2026-04-20 reliability / hygiene pass — resolved
+
+- [x] `CutoffJobScheduler.tick()` split into two try/catch blocks so a failure in `processDueJobs` no longer skips `reconcileAll` (and vice versa). `EstimateGuardService.reconcileAll` and `reconcileKnownProjects` now also isolate per-workspace and per-project failures so one bad tenant/project can't starve the rest.
+- [x] Workspace-wide in-progress-timer fetches during reconcile are now batched: `reconcileKnownProjects` calls `loadRunningEntriesByProject` once per tick and passes the per-project slice into a new `reconcileProject` overload. Previously N projects → N identical workspace-wide HTTP calls.
+- [x] Install reconcile no longer always runs both sync + async. `ClockifyLifecycleService.handleInstalled` publishes a `LifecycleReconcileRequestedEvent`; `InstallReconcileRetrier` is now a `@TransactionalEventListener(AFTER_COMMIT)` that short-circuits on success. `ClockifyRequestAuthException` on an attempt no longer aborts — the post-install token-activation race consumes the full 2s/5s/10s backoff window.
+- [x] `ClockifyCutoffService` delegation façade deleted. `InstallReconcileRetrier` and `CutoffJobScheduler` inject `EstimateGuardService` directly; `ClockifyLifecycleService` talks to reconcile via an event. No more `@Lazy`-broken cycles.
+- [x] Global `DataIntegrityViolationException` → `200 OK` handler dropped from `GlobalExceptionHandler`. The install flow was already idempotent (existing-row lookup + upsert); the handler was converting legitimate DB bugs elsewhere into silent successes. DIVE now surfaces as 500 via the catch-all.
+- [x] 429 retry re-implemented in `ClockifyBackendApiClient` + `ClockifyReportsApiClient`. Reads `Retry-After` (delta-seconds or HTTP-date), clamps to 10s max / 1s default, retries the request exactly once, then classifies as before. Matches the retry claim in README + the 2026-04-19 entry below.
+- [x] `/api/**` token validation centralised via `AddonTokenVerificationInterceptor` + `VerifiedAddonContextArgumentResolver`. Controllers accept `VerifiedAddonContext` as a typed method parameter; no more per-handler `verifyRequired` calls to forget.
+- [x] Encryption-salt length doc drift reconciled: README, `0_TO_WORKING.md`, and the `SecurityConfig` error message all now say `openssl rand -hex 32` (64 hex / 256 bits) — matching the actual runtime validator.
+- [x] `docker-compose.yml` no longer ships the forbidden literal DB password; `POSTGRES_PASSWORD` must come from the shell env (same `?:` pattern as the encryption material).
+- [x] Fail-fast `ADDON_BASE_URL` validator: startup rejects blank, the `example.ngrok-free.app` placeholder, and non-HTTPS values so a misconfigured deploy can't publish a broken manifest.
+- [x] Caffeine cache on `EstimateGuardService.knownProjectIds`: workspace-keyed, 30s TTL, 1000 entries. Cuts Clockify `listProjects` calls by 50-95% on multi-workspace deploys without losing freshness for lock/cutoff-driven IDs (those merge fresh on every lookup).
+- [x] Dropped redundant `idx_webhook_registrations_workspace` via `V1_1_1__drop_redundant_indexes.sql` — the composite unique `(workspace_id, route_path)` already covers workspace_id lookups.
+- [x] `InstallReconcileRetrierTest` expanded: immediate-success skips retry, persistent-auth consumes full backoff, transient-auth recovers, listener short-circuits on `useBackoffOnFailure=false`.
+
+---
+
 ## 2026-04-19 quality / efficiency / stability pass — resolved
 
 - [x] HTTP connect/read timeouts (5s / 10s) applied to every Clockify call via a `RestClientCustomizer` in `ClockifyInfrastructureConfiguration`. Previously both clients built `RestClient` with no timeouts and a stalled Clockify socket could hang a webhook thread indefinitely.
@@ -78,7 +101,7 @@ were closed in the 2026-04-18 commit:
 - [ ] **[HIGH]** `ClockifyReportsApiClient.java:45,56,67` — full URL/request/response bodies logged at INFO (`REPORTS-DEBUG`). Workspace financial + time data leak. Drop or guard behind `log.isTraceEnabled()` with redaction.
 - [ ] **[HIGH]** `ClockifyWebhookService.java:46-89` — `Clockify-Signature` is treated as a static bearer JWT; one leak = forever auth. Body is never bound to the signature. Fix: constant-time compare, never log; strictly validate `exp/iat`; prefer HMAC-of-body if Clockify offers it.
 - [ ] **[HIGH]** Add `spring-boot-starter-security` + a `SecurityFilterChain`. Currently no security headers (no CSP `frame-ancestors https://*.clockify.me`, no HSTS, no `X-Content-Type-Options`, no `X-Frame-Options`), no CSRF, no centralized `X-Addon-Token` enforcement, actuator unprotected. `config/SecurityConfig.java`, `pom.xml:55`.
-- [ ] **[HIGH]** Centralize `X-Addon-Token` validation in a `HandlerInterceptor`/filter for `/api/**`; today every protected handler hand-rolls `try/catch InvalidAddonTokenException` (`GuardApiController.java:33,48`, `ContextApiController.java:32`) — easy to forget on next route.
+- [x] **[HIGH]** Centralize `X-Addon-Token` validation in a `HandlerInterceptor`/filter for `/api/**`. **Closed 2026-04-20**: `AddonTokenVerificationInterceptor` + `VerifiedAddonContextArgumentResolver` land in `web/`; controllers declare `VerifiedAddonContext` as a typed method parameter.
 - [ ] **[HIGH]** Add `@RestControllerAdvice` mapping `ClockifyApiException`, `JsonSyntaxException`, generic `Exception` → sanitized envelope; set `server.error.include-message=never`, `include-stacktrace=never`. `ManifestController.java:25` and others currently leak Spring default error JSON / 500s.
 
 ### Spec / manifest
@@ -100,7 +123,7 @@ were closed in the 2026-04-18 commit:
 ### Performance (high impact)
 - [x] **[HIGH]** `ClockifyBackendApiClient.java:244` + `ClockifyReportsApiClient.java:47` — `restClientBuilder.build()` per request. No connection pooling, no timeouts, no retry/backoff. — **Closed 2026-04-19**: single `RestClient` per client via `@PostConstruct`, 5s/10s timeouts via `RestClientCustomizer`, Retry-After-honoring retry on 429. 5xx retry + connection pool tuning still open as a follow-up.
 - [ ] **[HIGH]** `processDueJobs` `findAllJobs()` then in-memory filter — `idx_cutoff_jobs_cutoff_at` unused. Add `findAllByCutoffAtLessThanEqual(Instant now)` with `LIMIT` + ORDER BY.
-- [ ] **[HIGH]** `knownProjectIds()` paginates whole workspace projects on every reconcile (every 60 s × workspaces). Add Caffeine cache (TTL 30–60 s) keyed by `workspaceId`.
+- [x] **[HIGH]** `knownProjectIds()` paginates whole workspace projects on every reconcile. **Closed 2026-04-20**: Caffeine cache on workspaceId (30s TTL, 1000 entries) wraps the Clockify-side IDs; DB-derived lock/cutoff IDs still merge fresh.
 
 ---
 
@@ -120,8 +143,8 @@ were closed in the 2026-04-18 commit:
 - [ ] **[MED]** `ProjectUsageService.loadRunningEntries:73-96` filters in memory after fetching all workspace in-progress entries. Use project-scoped endpoint or per-tick cache.
 
 ### Security / hardening
-- [ ] **[MED]** `application.yml:5-7` ships real default Postgres creds (`stop_at_estimate`/`stop_at_estimate`). Drop default password or fail-fast if it equals the example. Same for `docker-compose.yml:5-9`.
-- [ ] **[MED]** `AddonProperties.baseUrl` defaults to `https://example.ngrok-free.app`. `application.yml:41`. Default to empty + `@PostConstruct` validate non-blank HTTPS.
+- [x] **[MED]** `application.yml:5-7` ships real default Postgres creds. **Closed 2026-04-20**: `docker-compose.yml` requires `POSTGRES_PASSWORD` from env (`?:` pattern); `application.yml` has no default; `SecurityConfig` rejects the checked-in literal at startup.
+- [x] **[MED]** `AddonProperties.baseUrl` defaults to `https://example.ngrok-free.app`. **Closed 2026-04-20**: default removed; `SecurityConfig.validateBaseUrl` fails fast on blank, placeholder, or non-HTTPS values.
 - [ ] **[MED]** Frontend: `sidebar.js:191-197` falls back to `postMessage(..., '*')` and accepts any-origin inbound when `parentOrigin` is null. Refuse to operate; allow-list `*.clockify.me`.
 - [ ] **[MED]** Frontend: inline `<style>` block + `style="display:none"` in `sidebar.html:7-135` require `style-src 'unsafe-inline'`. Move to `/css/sidebar.css` + `.is-hidden` utility class.
 - [ ] **[MED]** Frontend: no CSRF / `X-Requested-With` on `POST /api/guard/reconcile`. `sidebar.js:60-67`. Set `credentials:'omit'`, add anti-replay header.
