@@ -4,13 +4,10 @@ Generated 2026-04-17 from 10 parallel Opus subagents (security, services, contro
 
 ---
 
-## 2026-04-20 reliability / hygiene pass — follow-ups (deferred)
-
-- [ ] **[MED]** Promote the risky flows to Testcontainers integration tests (`CutoffJobRepositoryIT`, `ClockifyLifecycleServiceIT`, `WebhookAuthDedupIT`, `CutoffJobSchedulerIT`). The Failsafe/`*IT.java` split is already in `pom.xml`; what's missing is the Testcontainers Postgres module wiring and the four new IT classes. The existing Mockito-driven unit tests remain fast; the IT suite is additive.
-
 ## 2026-04-20 reliability / hygiene pass — resolved
 
 - [x] Workspace timezone is now persisted on `installations.timezone`, populated lazily after successful lifecycle reconcile, and threaded through Reports API `timeZone` filters with UTC fallback for null/invalid values.
+- [x] Added a Postgres-backed Testcontainers IT suite (`CutoffJobRepositoryIT`, `ClockifyLifecycleServiceIT`, `WebhookAuthDedupIT`, `CutoffJobSchedulerIT`) on the `it` profile so ON CONFLICT upserts, lifecycle AFTER_COMMIT behavior, webhook dedup, and ShedLock locking are exercised against the real schema.
 - [x] `CutoffJobScheduler.tick()` split into two try/catch blocks so a failure in `processDueJobs` no longer skips `reconcileAll` (and vice versa). `EstimateGuardService.reconcileAll` and `reconcileKnownProjects` now also isolate per-workspace and per-project failures so one bad tenant/project can't starve the rest.
 - [x] Workspace-wide in-progress-timer fetches during reconcile are now batched: `reconcileKnownProjects` calls `loadRunningEntriesByProject` once per tick and passes the per-project slice into a new `reconcileProject` overload. Previously N projects → N identical workspace-wide HTTP calls.
 - [x] Install reconcile no longer always runs both sync + async. `ClockifyLifecycleService.handleInstalled` publishes a `LifecycleReconcileRequestedEvent`; `InstallReconcileRetrier` is now a `@TransactionalEventListener(AFTER_COMMIT)` that short-circuits on success. `ClockifyRequestAuthException` on an attempt no longer aborts — the post-install token-activation race consumes the full 2s/5s/10s backoff window.

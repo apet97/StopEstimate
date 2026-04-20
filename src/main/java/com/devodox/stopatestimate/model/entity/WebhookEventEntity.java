@@ -4,8 +4,12 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import org.springframework.data.domain.Persistable;
 
 import java.io.Serializable;
 import java.time.Instant;
@@ -17,7 +21,7 @@ import java.util.Objects;
  */
 @Entity
 @Table(name = "webhook_events")
-public class WebhookEventEntity {
+public class WebhookEventEntity implements Persistable<WebhookEventEntity.Key> {
 
     @EmbeddedId
     private Key id;
@@ -28,11 +32,20 @@ public class WebhookEventEntity {
     @Column(name = "received_at", nullable = false)
     private Instant receivedAt;
 
+    @Transient
+    private boolean newEntity = true;
+
     @PrePersist
     public void onCreate() {
         if (receivedAt == null) {
             receivedAt = Instant.now();
         }
+    }
+
+    @PostPersist
+    @PostLoad
+    public void markNotNew() {
+        newEntity = false;
     }
 
     public WebhookEventEntity() {}
@@ -42,8 +55,12 @@ public class WebhookEventEntity {
         this.workspaceId = workspaceId;
     }
 
+    @Override
     public Key getId() { return id; }
     public void setId(Key id) { this.id = id; }
+
+    @Override
+    public boolean isNew() { return newEntity; }
 
     public String getWorkspaceId() { return workspaceId; }
     public void setWorkspaceId(String v) { this.workspaceId = v; }

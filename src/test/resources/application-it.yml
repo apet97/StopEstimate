@@ -1,0 +1,30 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: none
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+addon:
+  key: stop-at-estimate
+  name: "Stop @ Estimate"
+  base-url: https://it.example.com
+  sidebar-label: "Stop @ Estimate"
+  default-reset-cadence: NONE
+  encryption-key-hex: deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+  encryption-salt-hex: cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe
+
+clockify:
+  cutoff:
+    interval-ms: 3600000
+    webhook-cleanup-cron: "-"
+  guard-events:
+    purge-cron: "-"
+
+logging:
+  level:
+    root: WARN
+    com.devodox.stopatestimate: INFO
