@@ -18,7 +18,41 @@ public record InstallationRecord(
         String enforcementMode,
         String defaultResetCadence,
         Instant installedAt,
-        Instant updatedAt) implements Serializable {
+        Instant updatedAt,
+        String timezone) implements Serializable {
+
+    public InstallationRecord(
+            String workspaceId,
+            String addonId,
+            String addonUserId,
+            String ownerUserId,
+            String installationToken,
+            String backendUrl,
+            String reportsUrl,
+            Map<String, WebhookCredential> webhookAuthTokens,
+            AddonStatus status,
+            boolean enabled,
+            String enforcementMode,
+            String defaultResetCadence,
+            Instant installedAt,
+            Instant updatedAt) {
+        this(
+                workspaceId,
+                addonId,
+                addonUserId,
+                ownerUserId,
+                installationToken,
+                backendUrl,
+                reportsUrl,
+                webhookAuthTokens,
+                status,
+                enabled,
+                enforcementMode,
+                defaultResetCadence,
+                installedAt,
+                updatedAt,
+                null);
+    }
 
     public InstallationRecord withStatus(AddonStatus newStatus, Instant now) {
         return new InstallationRecord(
@@ -35,7 +69,8 @@ public record InstallationRecord(
                 enforcementMode,
                 defaultResetCadence,
                 installedAt,
-                now);
+                now,
+                timezone);
     }
 
     public InstallationRecord withSettings(boolean newEnabled, String newEnforcementMode, String newDefaultResetCadence, Instant now) {
@@ -53,7 +88,46 @@ public record InstallationRecord(
                 newEnforcementMode,
                 newDefaultResetCadence,
                 installedAt,
-                now);
+                now,
+                timezone);
+    }
+
+    public InstallationRecord withTimezone(String newTimezone) {
+        return new InstallationRecord(
+                workspaceId,
+                addonId,
+                addonUserId,
+                ownerUserId,
+                installationToken,
+                backendUrl,
+                reportsUrl,
+                webhookAuthTokens,
+                status,
+                enabled,
+                enforcementMode,
+                defaultResetCadence,
+                installedAt,
+                updatedAt,
+                newTimezone);
+    }
+
+    public InstallationRecord withUpdatedAt(Instant now) {
+        return new InstallationRecord(
+                workspaceId,
+                addonId,
+                addonUserId,
+                ownerUserId,
+                installationToken,
+                backendUrl,
+                reportsUrl,
+                webhookAuthTokens,
+                status,
+                enabled,
+                enforcementMode,
+                defaultResetCadence,
+                installedAt,
+                now,
+                timezone);
     }
 
     public boolean active() {
