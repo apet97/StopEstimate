@@ -3,10 +3,8 @@ package com.devodox.stopatestimate.controller;
 import com.devodox.stopatestimate.model.InstallationRecord;
 import com.devodox.stopatestimate.model.VerifiedAddonContext;
 import com.devodox.stopatestimate.service.ClockifyLifecycleService;
-import com.devodox.stopatestimate.service.VerifiedAddonContextService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -17,19 +15,14 @@ import java.util.Map;
 @RequestMapping("/api")
 public class ContextApiController {
 
-    private final VerifiedAddonContextService verifiedAddonContextService;
     private final ClockifyLifecycleService lifecycleService;
 
-    public ContextApiController(VerifiedAddonContextService verifiedAddonContextService,
-                                ClockifyLifecycleService lifecycleService) {
-        this.verifiedAddonContextService = verifiedAddonContextService;
+    public ContextApiController(ClockifyLifecycleService lifecycleService) {
         this.lifecycleService = lifecycleService;
     }
 
     @GetMapping("/context")
-    public ResponseEntity<Map<String, Object>> context(
-            @RequestHeader(value = "X-Addon-Token", required = false) String token) {
-        VerifiedAddonContext context = verifiedAddonContextService.verifyRequired(token);
+    public ResponseEntity<Map<String, Object>> context(VerifiedAddonContext context) {
         InstallationRecord installation = lifecycleService.findInstallation(context.workspaceId()).orElse(null);
 
         Map<String, Object> payload = new LinkedHashMap<>();
