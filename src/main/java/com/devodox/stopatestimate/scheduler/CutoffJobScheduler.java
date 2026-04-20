@@ -2,7 +2,7 @@ package com.devodox.stopatestimate.scheduler;
 
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.repository.WebhookEventRepository;
-import com.devodox.stopatestimate.service.ClockifyCutoffService;
+import com.devodox.stopatestimate.service.EstimateGuardService;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,19 +19,19 @@ public class CutoffJobScheduler {
     private static final Logger log = LoggerFactory.getLogger(CutoffJobScheduler.class);
     private static final Duration WEBHOOK_EVENT_RETENTION = Duration.ofHours(24);
 
-    private final ClockifyCutoffService cutoffService;
+    private final EstimateGuardService estimateGuardService;
     private final WebhookEventRepository webhookEventRepository;
     private final GuardEventRepository guardEventRepository;
     private final Clock clock;
     private final Duration guardEventsRetention;
 
     public CutoffJobScheduler(
-            ClockifyCutoffService cutoffService,
+            EstimateGuardService estimateGuardService,
             WebhookEventRepository webhookEventRepository,
             GuardEventRepository guardEventRepository,
             Clock clock,
             @Value("${clockify.guard-events.retention:P30D}") Duration guardEventsRetention) {
-        this.cutoffService = cutoffService;
+        this.estimateGuardService = estimateGuardService;
         this.webhookEventRepository = webhookEventRepository;
         this.guardEventRepository = guardEventRepository;
         this.clock = clock;
@@ -41,11 +41,17 @@ public class CutoffJobScheduler {
     @Scheduled(fixedDelayString = "${clockify.cutoff.interval-ms:60000}")
     @SchedulerLock(name = "CutoffJobScheduler.tick", lockAtMostFor = "PT5M", lockAtLeastFor = "PT15S")
     public void tick() {
+        // Split failure domains: a thrown processDueJobs must not skip reconcileAll, and
+        // vice versa. Workspace-level isolation lives inside EstimateGuardService.reconcileAll.
         try {
-            cutoffService.processDueJobs("scheduler");
-            cutoffService.reconcileAll("scheduler");
-        } catch (Exception e) {
-            log.warn("Scheduled cutoff tick failed", e);
+            estimateGuardService.processDueJobs("scheduler");
+        } catch (RuntimeException e) {
+            log.warn("processDueJobs failed", e);
+        }
+        try {
+            estimateGuardService.reconcileAll("scheduler");
+        } catch (RuntimeException e) {
+            log.warn("reconcileAll failed", e);
         }
     }
 

@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -23,7 +24,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,9 +44,8 @@ class ClockifyLifecycleServiceTest {
     private InstallationStore installationStore;
     private LockSnapshotStore lockSnapshotStore;
     private CutoffJobStore cutoffJobStore;
-    private ClockifyCutoffService cutoffService;
-    private InstallReconcileRetrier retrier;
     private ProjectLockService projectLockService;
+    private ApplicationEventPublisher eventPublisher;
     private ClockifyLifecycleService service;
     private final Clock fixedClock = Clock.fixed(Instant.parse("2026-04-19T10:00:00Z"), ZoneOffset.UTC);
 
@@ -56,9 +55,8 @@ class ClockifyLifecycleServiceTest {
         installationStore = Mockito.mock(InstallationStore.class);
         lockSnapshotStore = Mockito.mock(LockSnapshotStore.class);
         cutoffJobStore = Mockito.mock(CutoffJobStore.class);
-        cutoffService = Mockito.mock(ClockifyCutoffService.class);
-        retrier = Mockito.mock(InstallReconcileRetrier.class);
         projectLockService = Mockito.mock(ProjectLockService.class);
+        eventPublisher = Mockito.mock(ApplicationEventPublisher.class);
         AddonProperties props = new AddonProperties();
         Map<String, String> pathToEvent = new HashMap<>();
         pathToEvent.put("/webhooks/new-time-entry", "NEW_TIME_ENTRY");
@@ -67,12 +65,11 @@ class ClockifyLifecycleServiceTest {
                 installationStore,
                 lockSnapshotStore,
                 cutoffJobStore,
-                cutoffService,
-                retrier,
                 projectLockService,
                 props,
                 pathToEvent,
-                fixedClock);
+                fixedClock,
+                eventPublisher);
     }
 
     @Test
@@ -87,7 +84,7 @@ class ClockifyLifecycleServiceTest {
         service.handleStatusChanged(payload.toString(), LIFECYCLE_TOKEN);
 
         verify(installationStore, never()).save(any(InstallationRecord.class));
-        verify(cutoffService, never()).reconcileKnownProjects(anyString(), anyString());
+        verify(eventPublisher, never()).publishEvent(any(LifecycleReconcileRequestedEvent.class));
     }
 
     @Test
@@ -154,8 +151,13 @@ class ClockifyLifecycleServiceTest {
         assertThat(saved.status()).isEqualTo(AddonStatus.ACTIVE);
         assertThat(saved.enabled()).isTrue();
 
-        verify(cutoffService).reconcileKnownProjects(WS, "lifecycle:installed");
-        verify(retrier).reconcileWithBackoff(WS, "lifecycle:installed");
+        ArgumentCaptor<LifecycleReconcileRequestedEvent> eventCaptor =
+                ArgumentCaptor.forClass(LifecycleReconcileRequestedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        LifecycleReconcileRequestedEvent event = eventCaptor.getValue();
+        assertThat(event.workspaceId()).isEqualTo(WS);
+        assertThat(event.source()).isEqualTo("lifecycle:installed");
+        assertThat(event.useBackoffOnFailure()).isTrue();
     }
 
     @Test

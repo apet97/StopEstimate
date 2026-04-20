@@ -16,6 +16,8 @@ import com.devodox.stopatestimate.model.entity.GuardEventEntity;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.store.CutoffJobStore;
 import com.devodox.stopatestimate.util.ClockifyJson;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -60,6 +63,18 @@ public class EstimateGuardService {
     private final ClockifyBackendApiClient backendApiClient;
     private final Clock clock;
 
+    /**
+     * Per-workspace cache of the Clockify-side project ID list. Scheduler tick + sidebar calls
+     * hit this more than once per minute; the 30s TTL means we hit Clockify at most once per
+     * tick while still reflecting project changes within ~30s even if no webhook arrives.
+     * DB-derived IDs (lock snapshots, cutoff jobs) are NOT cached — they're merged fresh on
+     * each lookup so a just-fired webhook's new cutoff job is picked up immediately.
+     */
+    private final Cache<String, Set<String>> clockifyProjectIdsCache = Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofSeconds(30))
+            .maximumSize(1_000)
+            .build();
+
     public EstimateGuardService(
             ClockifyLifecycleService lifecycleService,
             ProjectUsageService projectUsageService,
@@ -79,8 +94,14 @@ public class EstimateGuardService {
 
     public void reconcileAll(String source) {
         // DB-08: DB-side filter via idx_installations_active; no need to re-check .active() here.
+        // Per-workspace try/catch: one bad tenant (expired token, revoked scopes) must not stop
+        // reconcile for the remaining workspaces in the same tick.
         for (InstallationRecord installation : lifecycleService.findActiveInstallations()) {
-            reconcileKnownProjects(installation.workspaceId(), source);
+            try {
+                reconcileKnownProjects(installation.workspaceId(), source);
+            } catch (RuntimeException e) {
+                log.warn("reconcileKnownProjects failed for workspace {}", installation.workspaceId(), e);
+            }
         }
     }
 
@@ -89,12 +110,41 @@ public class EstimateGuardService {
         if (installation == null) {
             return;
         }
+        // PERF: fetch the workspace-scoped in-progress-timers endpoint ONCE per tick and
+        // group by projectId. Previously reconcileProject called loadRunningEntries per
+        // project, which hit the same workspace-wide endpoint N times and filtered in-memory.
+        // Pre-fetched slice is passed into the reconcileProject overload; the `null` slice
+        // path is reserved for webhook-driven single-project reconciles.
+        Map<String, List<RunningTimeEntry>> runningEntriesByProject;
+        try {
+            runningEntriesByProject = projectUsageService.loadRunningEntriesByProject(installation);
+        } catch (RuntimeException e) {
+            log.warn("loadRunningEntriesByProject failed for workspace {} — falling back to per-project fetch", workspaceId, e);
+            runningEntriesByProject = Map.of();
+        }
+        // Per-project try/catch: one broken project (deleted mid-tick, Clockify 4xx on a
+        // specific id) must not starve the remaining projects.
         for (String projectId : knownProjectIds(installation)) {
-            reconcileProject(workspaceId, projectId, source, null);
+            try {
+                reconcileProject(workspaceId, projectId, source, null,
+                        runningEntriesByProject.getOrDefault(projectId, List.of()));
+            } catch (RuntimeException e) {
+                log.warn("reconcileProject failed for workspace {} project {}", workspaceId, projectId, e);
+            }
         }
     }
 
     public void reconcileProject(String workspaceId, String projectId, String source, JsonObject payload) {
+        // Webhook / direct-call path: no batched prefetch available; fetch per-project.
+        reconcileProject(workspaceId, projectId, source, payload, null);
+    }
+
+    public void reconcileProject(
+            String workspaceId,
+            String projectId,
+            String source,
+            JsonObject payload,
+            List<RunningTimeEntry> preFetchedRunningEntries) {
         // BUG-06: no method-wide @Transactional. This method makes 3–5 Clockify HTTP calls
         // and previously held a DB connection across all of them, exhausting the pool under
         // load. Each collaborator (cutoffJobStore, projectLockService, recordEvent) commits
@@ -126,7 +176,9 @@ public class EstimateGuardService {
         }
 
         ProjectUsage usage = projectUsageService.loadProjectUsage(installation, projectState, now);
-        List<RunningTimeEntry> runningEntries = projectUsageService.loadRunningEntries(installation, projectId);
+        List<RunningTimeEntry> runningEntries = preFetchedRunningEntries != null
+                ? preFetchedRunningEntries
+                : projectUsageService.loadRunningEntries(installation, projectId);
         Assessment assessment = assess(projectState, usage, runningEntries, now, source, payload);
 
         if (!installation.enforcing()) {
@@ -394,10 +446,21 @@ public class EstimateGuardService {
 
     private Set<String> knownProjectIds(InstallationRecord installation) {
         Set<String> projectIds = new LinkedHashSet<>();
-        backendApiClient.listProjects(installation).forEach(project -> ClockifyJson.string(project, "id").ifPresent(projectIds::add));
+        projectIds.addAll(cachedClockifyProjectIds(installation));
+        // DB-derived IDs are always merged fresh so a just-created lock or cutoff-job is
+        // reconciled on the very next pass instead of waiting for the 30s TTL to expire.
         projectLockService.findSnapshots(installation.workspaceId()).forEach(snapshot -> projectIds.add(snapshot.projectId()));
         cutoffJobStore.findByWorkspaceId(installation.workspaceId()).forEach(job -> projectIds.add(job.projectId()));
         return projectIds;
+    }
+
+    private Set<String> cachedClockifyProjectIds(InstallationRecord installation) {
+        return clockifyProjectIdsCache.get(installation.workspaceId(), ws -> {
+            Set<String> ids = new LinkedHashSet<>();
+            backendApiClient.listProjects(installation)
+                    .forEach(project -> ClockifyJson.string(project, "id").ifPresent(ids::add));
+            return ids;
+        });
     }
 
     private Assessment assess(

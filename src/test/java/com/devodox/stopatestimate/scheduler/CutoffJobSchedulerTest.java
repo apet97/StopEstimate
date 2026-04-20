@@ -2,7 +2,7 @@ package com.devodox.stopatestimate.scheduler;
 
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.repository.WebhookEventRepository;
-import com.devodox.stopatestimate.service.ClockifyCutoffService;
+import com.devodox.stopatestimate.service.EstimateGuardService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,14 +23,14 @@ class CutoffJobSchedulerTest {
     private static final Instant NOW = Instant.parse("2026-04-19T12:00:00Z");
     private static final Duration RETENTION = Duration.ofDays(30);
 
-    private ClockifyCutoffService cutoffService;
+    private EstimateGuardService cutoffService;
     private WebhookEventRepository webhookEventRepository;
     private GuardEventRepository guardEventRepository;
     private CutoffJobScheduler scheduler;
 
     @BeforeEach
     void setUp() {
-        cutoffService = mock(ClockifyCutoffService.class);
+        cutoffService = mock(EstimateGuardService.class);
         webhookEventRepository = mock(WebhookEventRepository.class);
         guardEventRepository = mock(GuardEventRepository.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);

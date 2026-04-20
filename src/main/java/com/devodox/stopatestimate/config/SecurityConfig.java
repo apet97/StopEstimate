@@ -28,8 +28,9 @@ public class SecurityConfig {
      */
     private static final Set<String> FORBIDDEN_KEYS = Set.of(
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    // 64-char hex example; shorter values are already rejected by the length check.
     private static final Set<String> FORBIDDEN_SALTS = Set.of(
-            "0123456789abcdef0123456789abcdef");
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
     /**
      * Placeholder DB passwords shipped in repo examples / docker-compose.yml. Operators
@@ -37,6 +38,12 @@ public class SecurityConfig {
      * effective password is blank or matches one of these checked-in values.
      */
     private static final Set<String> FORBIDDEN_DB_PASSWORDS = Set.of("stop_at_estimate");
+
+    /** Placeholder base-URLs shipped in repo examples that must never reach a real deploy. */
+    private static final Set<String> FORBIDDEN_BASE_URLS = Set.of(
+            "https://example.ngrok-free.app",
+            "https://your-https-url",
+            "https://YOUR-HTTPS-URL");
 
     private final AddonProperties addonProperties;
     private final String datasourcePassword;
@@ -86,7 +93,7 @@ public class SecurityConfig {
         if (FORBIDDEN_SALTS.contains(salt)) {
             throw new IllegalStateException(
                     "addon.encryption-salt-hex is set to a checked-in example value; "
-                            + "generate a unique salt with `openssl rand -hex 16`");
+                            + "generate a unique salt with `openssl rand -hex 32`");
         }
 
         if (datasourcePassword == null || datasourcePassword.isBlank()) {
@@ -98,6 +105,27 @@ public class SecurityConfig {
             throw new IllegalStateException(
                     "spring.datasource.password is set to a checked-in example value; "
                             + "set SPRING_DATASOURCE_PASSWORD to a deploy-specific secret");
+        }
+
+        validateBaseUrl(addonProperties.getBaseUrl());
+    }
+
+    private static void validateBaseUrl(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalStateException(
+                    "addon.base-url (ADDON_BASE_URL) must be set to the public HTTPS URL this "
+                            + "deploy is reachable at; no default is accepted");
+        }
+        String trimmed = baseUrl.trim();
+        if (FORBIDDEN_BASE_URLS.contains(trimmed)) {
+            throw new IllegalStateException(
+                    "addon.base-url is set to a checked-in placeholder (" + trimmed + "); "
+                            + "set ADDON_BASE_URL to the deploy's real public HTTPS URL");
+        }
+        if (!trimmed.toLowerCase(java.util.Locale.ROOT).startsWith("https://")) {
+            throw new IllegalStateException(
+                    "addon.base-url must be an HTTPS URL; Clockify requires TLS for addon "
+                            + "endpoints (got: " + trimmed + ")");
         }
     }
 

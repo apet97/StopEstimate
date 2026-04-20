@@ -58,7 +58,9 @@ addon:
   key: ${ADDON_KEY:stop-at-estimate}
   name: ${ADDON_NAME:Stop @ Estimate}
   description: ${ADDON_DESCRIPTION:Stops timers and locks projects when time or budget estimates are reached.}
-  base-url: ${ADDON_BASE_URL:https://example.ngrok-free.app}
+  # No default — operators must set ADDON_BASE_URL. A startup validator rejects blank values
+  # and well-known placeholder URLs so a misconfigured deploy can't publish a broken manifest.
+  base-url: ${ADDON_BASE_URL:}
   sidebar-label: ${ADDON_SIDEBAR_LABEL:Stop @ Estimate}
   default-reset-cadence: ${ADDON_DEFAULT_RESET_CADENCE:NONE}
   # No defaults — operators MUST set these env vars. The app fails fast at startup

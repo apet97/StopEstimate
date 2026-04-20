@@ -8,7 +8,9 @@ public class AddonProperties {
     private String key = "stop-at-estimate";
     private String name = "Stop @ Estimate";
     private String description = "Stops timers and locks projects when time or budget estimates are reached.";
-    private String baseUrl = "https://example.ngrok-free.app";
+    // No default — operators must set ADDON_BASE_URL. Startup validation in SecurityConfig
+    // rejects blank and well-known placeholder values so a misconfigured deploy can't boot.
+    private String baseUrl;
     private String sidebarLabel = "Stop @ Estimate";
     private String defaultResetCadence = "NONE";
     private String encryptionKeyHex;

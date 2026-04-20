@@ -7,7 +7,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -15,14 +18,22 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Duration;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class ClockifyBackendApiClient {
 
+    private static final Logger log = LoggerFactory.getLogger(ClockifyBackendApiClient.class);
     /** Hard cap on paginated loops so a stuck pagination never OOMs the JVM. */
     private static final int MAX_PAGES = 1000;
+    /** Upper bound for a single Retry-After sleep. Anything larger is deferred to the scheduler. */
+    private static final long RETRY_AFTER_MAX_MS = 10_000L;
+    /** Default sleep when the server returns 429 without a Retry-After header. */
+    private static final long RETRY_AFTER_DEFAULT_MS = 1_000L;
 
     private final RestClient restClient;
     private final Gson gson = new Gson();
@@ -264,39 +275,90 @@ public class ClockifyBackendApiClient {
 
     private String exchange(String method, String url, String addonToken, String body) {
         try {
-            return switch (method) {
-                case "GET" -> restClient.get()
-                        .uri(url)
-                        .header("X-Addon-Token", addonToken)
-                        .retrieve()
-                        .body(String.class);
-                case "PUT" -> restClient.put()
-                        .uri(url)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Addon-Token", addonToken)
-                        .body(body == null ? "{}" : body)
-                        .retrieve()
-                        .body(String.class);
-                case "PATCH" -> restClient.patch()
-                        .uri(url)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Addon-Token", addonToken)
-                        .body(body == null ? "{}" : body)
-                        .retrieve()
-                        .body(String.class);
-                case "POST" -> restClient.post()
-                        .uri(url)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Addon-Token", addonToken)
-                        .body(body == null ? "{}" : body)
-                        .retrieve()
-                        .body(String.class);
-                default -> throw new IllegalArgumentException("Unsupported method: " + method);
-            };
+            return exchangeOnce(method, url, addonToken, body);
         } catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 429) {
+                long sleepMs = retryAfterMillis(e);
+                log.info("Clockify backend returned 429 for {} {}; retrying once after {}ms", method, url, sleepMs);
+                try {
+                    Thread.sleep(sleepMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw classify(e);
+                }
+                try {
+                    return exchangeOnce(method, url, addonToken, body);
+                } catch (RestClientResponseException retryEx) {
+                    throw classify(retryEx);
+                } catch (RuntimeException retryEx) {
+                    throw new ClockifyApiException("Clockify backend call failed", retryEx);
+                }
+            }
             throw classify(e);
         } catch (RuntimeException e) {
             throw new ClockifyApiException("Clockify backend call failed", e);
+        }
+    }
+
+    private String exchangeOnce(String method, String url, String addonToken, String body) {
+        return switch (method) {
+            case "GET" -> restClient.get()
+                    .uri(url)
+                    .header("X-Addon-Token", addonToken)
+                    .retrieve()
+                    .body(String.class);
+            case "PUT" -> restClient.put()
+                    .uri(url)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("X-Addon-Token", addonToken)
+                    .body(body == null ? "{}" : body)
+                    .retrieve()
+                    .body(String.class);
+            case "PATCH" -> restClient.patch()
+                    .uri(url)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("X-Addon-Token", addonToken)
+                    .body(body == null ? "{}" : body)
+                    .retrieve()
+                    .body(String.class);
+            case "POST" -> restClient.post()
+                    .uri(url)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("X-Addon-Token", addonToken)
+                    .body(body == null ? "{}" : body)
+                    .retrieve()
+                    .body(String.class);
+            default -> throw new IllegalArgumentException("Unsupported method: " + method);
+        };
+    }
+
+    /**
+     * Parse Retry-After as either a delta-seconds or HTTP-date. Clamp to [0, RETRY_AFTER_MAX_MS]
+     * so one bounded retry happens on the caller thread; anything larger defers to the scheduler
+     * tick via the thrown ClockifyApiException.
+     */
+    static long retryAfterMillis(RestClientResponseException e) {
+        HttpHeaders headers = e.getResponseHeaders();
+        if (headers == null) {
+            return RETRY_AFTER_DEFAULT_MS;
+        }
+        String header = headers.getFirst(HttpHeaders.RETRY_AFTER);
+        if (header == null || header.isBlank()) {
+            return RETRY_AFTER_DEFAULT_MS;
+        }
+        String trimmed = header.trim();
+        try {
+            long seconds = Long.parseLong(trimmed);
+            return Math.max(0L, Math.min(RETRY_AFTER_MAX_MS, seconds * 1000L));
+        } catch (NumberFormatException ignored) {
+            // fall through to HTTP-date parsing
+        }
+        try {
+            ZonedDateTime target = ZonedDateTime.parse(trimmed, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME);
+            long millis = Duration.between(ZonedDateTime.now(target.getZone()), target).toMillis();
+            return Math.max(0L, Math.min(RETRY_AFTER_MAX_MS, millis));
+        } catch (DateTimeParseException ignored) {
+            return RETRY_AFTER_DEFAULT_MS;
         }
     }
 
@@ -304,8 +366,9 @@ public class ClockifyBackendApiClient {
         HttpStatusCode status = e.getStatusCode();
         int code = status.value();
         if (code == 429) {
-            // RES-01: do not sleep inside the shared scheduler pool — let the next tick retry.
-            return new ClockifyApiException("Rate limited by Clockify (429); will retry on next tick", e);
+            // One bounded Retry-After-honoring retry has already been attempted above. A second
+            // 429 means the burst is sustained; defer to the scheduler's next tick.
+            return new ClockifyApiException("Rate limited by Clockify (429) after one retry; deferring to scheduler", e);
         }
         if (code == 401) {
             return new com.devodox.stopatestimate.service.ClockifyRequestAuthException(

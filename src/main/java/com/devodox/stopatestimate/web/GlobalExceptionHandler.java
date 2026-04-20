@@ -9,7 +9,6 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import com.google.gson.JsonSyntaxException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -77,13 +76,6 @@ public class GlobalExceptionHandler {
         // callers so we match the protection intent of server.error.include-message=never.
         log.debug("IllegalArgumentException: {}", e.getMessage(), e);
         return respond(HttpStatus.BAD_REQUEST, "invalid_request", "Invalid request parameters");
-    }
-
-    @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<Map<String, Object>> handleDataIntegrity(DataIntegrityViolationException e) {
-        // Typically an idempotent install race; return 200 so the caller (Clockify) stops retrying.
-        log.debug("DataIntegrityViolation suppressed (idempotent): {}", e.getMessage());
-        return ResponseEntity.ok(Map.of("ok", true, "note", "already_applied"));
     }
 
     @ExceptionHandler(Exception.class)

@@ -40,7 +40,7 @@ class ClockifyWebhookServiceTest {
 
     private TokenVerificationService tokenVerificationService;
     private ClockifyLifecycleService lifecycleService;
-    private ClockifyCutoffService cutoffService;
+    private EstimateGuardService cutoffService;
     private WebhookEventRepository webhookEventRepository;
     private ClockifyWebhookService service;
 
@@ -48,7 +48,7 @@ class ClockifyWebhookServiceTest {
     void setUp() {
         tokenVerificationService = Mockito.mock(TokenVerificationService.class);
         lifecycleService = Mockito.mock(ClockifyLifecycleService.class);
-        cutoffService = Mockito.mock(ClockifyCutoffService.class);
+        cutoffService = Mockito.mock(EstimateGuardService.class);
         webhookEventRepository = Mockito.mock(WebhookEventRepository.class);
         service = new ClockifyWebhookService(
                 tokenVerificationService, lifecycleService, cutoffService, webhookEventRepository);
