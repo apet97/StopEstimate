@@ -45,8 +45,8 @@ Copy `.env.example` to `.env` and fill in **real** values. The app will refuse t
 cp .env.example .env
 
 # Generate per-deploy encryption material — never reuse the .env.example values
-openssl rand -hex 32   # paste as APP_ENCRYPTION_KEY_HEX in .env
-openssl rand -hex 16   # paste as APP_ENCRYPTION_SALT_HEX in .env
+openssl rand -hex 32   # paste as APP_ENCRYPTION_KEY_HEX in .env (>= 64 hex chars)
+openssl rand -hex 32   # paste as APP_ENCRYPTION_SALT_HEX in .env (>= 64 hex chars)
 
 # Export into the current shell
 export $(grep -v '^#' .env | xargs)

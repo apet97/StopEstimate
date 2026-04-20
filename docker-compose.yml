@@ -4,7 +4,9 @@ services:
     environment:
       POSTGRES_DB: stop_at_estimate
       POSTGRES_USER: stop_at_estimate
-      POSTGRES_PASSWORD: stop_at_estimate
+      # The app rejects the checked-in example password at startup, so both the DB and the
+      # app must read the same deploy-specific value from the shell environment.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the shell env (e.g. `openssl rand -base64 24`)}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -24,10 +26,10 @@ services:
       SERVER_PORT: 8080
       ADDON_KEY: stop-at-estimate
       ADDON_NAME: "Stop @ Estimate"
-      ADDON_BASE_URL: ${ADDON_BASE_URL:-https://example.ngrok-free.app}
+      ADDON_BASE_URL: ${ADDON_BASE_URL:?set ADDON_BASE_URL to your public HTTPS URL (ngrok/cloudflared)}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/stop_at_estimate
       SPRING_DATASOURCE_USERNAME: stop_at_estimate
-      SPRING_DATASOURCE_PASSWORD: stop_at_estimate
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the shell env}
       # Both must be supplied from the shell env; the app rejects checked-in example values.
       APP_ENCRYPTION_KEY_HEX: ${APP_ENCRYPTION_KEY_HEX:?set APP_ENCRYPTION_KEY_HEX via `openssl rand -hex 32`}
       APP_ENCRYPTION_SALT_HEX: ${APP_ENCRYPTION_SALT_HEX:?set APP_ENCRYPTION_SALT_HEX via `openssl rand -hex 32`}

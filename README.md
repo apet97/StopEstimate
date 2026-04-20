@@ -124,8 +124,8 @@ docker compose up -d postgres
 
 cp .env.example .env
 # Generate real encryption material into .env
-openssl rand -hex 32   # APP_ENCRYPTION_KEY_HEX
-openssl rand -hex 16   # APP_ENCRYPTION_SALT_HEX
+openssl rand -hex 32   # APP_ENCRYPTION_KEY_HEX  (>= 64 hex chars / 256 bits)
+openssl rand -hex 32   # APP_ENCRYPTION_SALT_HEX (>= 64 hex chars / 256 bits)
 
 export $(grep -v '^#' .env | xargs)
 
