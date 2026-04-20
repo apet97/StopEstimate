@@ -14,6 +14,7 @@ import org.mockito.Mockito;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
@@ -49,7 +50,11 @@ class ProjectUsageServiceTest {
                 Instant.parse("2026-04-18T00:00:00Z"),
                 null);
 
-        JsonObject body = service.summaryFilter("project-42", window, Instant.parse("2026-04-18T10:00:00Z"));
+        JsonObject body = service.summaryFilter(
+                "project-42",
+                window,
+                Instant.parse("2026-04-18T10:00:00Z"),
+                ZoneId.of("UTC"));
 
         assertThat(body.has("amounts"))
                 .as("summary filter must not declare amounts — workspaces without Cost Analysis reject it")
@@ -65,6 +70,38 @@ class ProjectUsageServiceTest {
         assertThat(body.getAsJsonObject("projects").getAsJsonArray("ids").get(0).getAsString())
                 .isEqualTo("project-42");
         assertThat(body.has("summaryFilter")).isTrue();
+    }
+
+    @Test
+    void summaryFilterUsesInstallationTimezoneWhenPresent() {
+        ResetWindow window = new ResetWindow(
+                Instant.parse("2026-04-01T00:00:00Z"),
+                Instant.parse("2026-04-18T00:00:00Z"),
+                null);
+
+        JsonObject body = service.summaryFilter(
+                "project-42",
+                window,
+                Instant.parse("2026-04-18T10:00:00Z"),
+                ZoneId.of("Europe/Belgrade"));
+
+        assertThat(body.get("timeZone").getAsString()).isEqualTo("Europe/Belgrade");
+    }
+
+    @Test
+    void summaryFilterFallsBackToUtcWhenTimezoneNull() {
+        ResetWindow window = new ResetWindow(
+                Instant.parse("2026-04-01T00:00:00Z"),
+                Instant.parse("2026-04-18T00:00:00Z"),
+                null);
+
+        JsonObject body = service.summaryFilter(
+                "project-42",
+                window,
+                Instant.parse("2026-04-18T10:00:00Z"),
+                null);
+
+        assertThat(body.get("timeZone").getAsString()).isEqualTo("UTC");
     }
 
     @Test

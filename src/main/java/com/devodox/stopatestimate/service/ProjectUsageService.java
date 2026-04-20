@@ -19,6 +19,8 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -27,7 +29,7 @@ import java.util.Map;
 
 @Service
 public class ProjectUsageService {
-    private static final DateTimeFormatter REPORT_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS").withZone(java.time.ZoneOffset.UTC);
+    private static final DateTimeFormatter REPORT_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS").withZone(ZoneOffset.UTC);
 
     private final ClockifyBackendApiClient backendApiClient;
     private final ClockifyReportsApiClient reportsApiClient;
@@ -59,9 +61,14 @@ public class ProjectUsageService {
 
     public ProjectUsage loadProjectUsage(InstallationRecord installation, ProjectState projectState, Instant now) {
         ResetWindow window = resetWindowPlanner.currentWindow(projectState.caps(), now);
-        JsonObject summary = reportsApiClient.generateSummaryReport(installation, summaryFilter(projectState.projectId(), window, now));
+        ZoneId zone = resolveZone(installation.timezone());
+        JsonObject summary = reportsApiClient.generateSummaryReport(
+                installation,
+                summaryFilter(projectState.projectId(), window, now, zone));
         BigDecimal expenses = projectState.caps().budgetCapActive() && projectState.caps().includeExpenses()
-                ? extractExpenseTotal(reportsApiClient.generateExpenseReport(installation, expenseFilter(projectState.projectId(), window, now)))
+                ? extractExpenseTotal(reportsApiClient.generateExpenseReport(
+                        installation,
+                        expenseFilter(projectState.projectId(), window, now, zone)))
                 : BigDecimal.ZERO;
         return new ProjectUsage(
                 window,
@@ -210,8 +217,8 @@ public class ProjectUsageService {
 
     // Package-private so ProjectUsageServiceTest can assert the emitted filter JSON does not
     // request Cost Analysis amounts (which would 400 on workspaces without that feature).
-    JsonObject summaryFilter(String projectId, ResetWindow window, Instant now) {
-        JsonObject filter = baseReportFilter(window, now);
+    JsonObject summaryFilter(String projectId, ResetWindow window, Instant now, ZoneId zone) {
+        JsonObject filter = baseReportFilter(window, now, zone);
         JsonObject projects = new JsonObject();
         projects.addProperty("contains", "CONTAINS_ONLY");
         projects.addProperty("status", "ALL");
@@ -234,8 +241,8 @@ public class ProjectUsageService {
         return filter;
     }
 
-    private JsonObject expenseFilter(String projectId, ResetWindow window, Instant now) {
-        JsonObject filter = baseReportFilter(window, now);
+    private JsonObject expenseFilter(String projectId, ResetWindow window, Instant now, ZoneId zone) {
+        JsonObject filter = baseReportFilter(window, now, zone);
         JsonObject projects = new JsonObject();
         projects.addProperty("contains", "CONTAINS_ONLY");
         projects.addProperty("status", "ALL");
@@ -246,15 +253,27 @@ public class ProjectUsageService {
         return filter;
     }
 
-    private JsonObject baseReportFilter(ResetWindow window, Instant now) {
+    private JsonObject baseReportFilter(ResetWindow window, Instant now, ZoneId zone) {
+        ZoneId resolvedZone = zone == null ? ZoneOffset.UTC : zone;
         JsonObject filter = new JsonObject();
         filter.addProperty("dateRangeType", "ABSOLUTE");
         filter.addProperty("dateRangeStart", REPORT_TIMESTAMP.format(window.startInclusive()));
         Instant end = window.endExclusive() == null ? now : window.endExclusive();
         filter.addProperty("dateRangeEnd", REPORT_TIMESTAMP.format(end));
         filter.addProperty("exportType", "JSON");
-        filter.addProperty("timeZone", "UTC");
+        filter.addProperty("timeZone", ZoneOffset.UTC.equals(resolvedZone) ? "UTC" : resolvedZone.getId());
         return filter;
+    }
+
+    private ZoneId resolveZone(String timezone) {
+        if (timezone == null || timezone.isBlank()) {
+            return ZoneOffset.UTC;
+        }
+        try {
+            return ZoneId.of(timezone);
+        } catch (RuntimeException ignored) {
+            return ZoneOffset.UTC;
+        }
     }
 
     // Package-private so ProjectUsageServiceTest can assert the parsing contract directly without

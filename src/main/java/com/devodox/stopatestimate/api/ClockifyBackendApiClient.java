@@ -52,6 +52,13 @@ public class ClockifyBackendApiClient {
                 installation.installationToken());
     }
 
+    public JsonObject getWorkspace(InstallationRecord installation) {
+        return getObject(
+                installation.backendUrl(),
+                "/v1/workspaces/" + installation.workspaceId(),
+                installation.installationToken());
+    }
+
     public List<JsonObject> listInProgressTimeEntries(InstallationRecord installation) {
         return listPagedArray(
                 installation.backendUrl(),

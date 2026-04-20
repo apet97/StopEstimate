@@ -59,6 +59,7 @@ public class InstallationStore {
         entity.setStatus(installation.status() == null ? AddonStatus.ACTIVE.name() : installation.status().name());
         entity.setEnabled(installation.enabled());
         entity.setDefaultResetCadence(installation.defaultResetCadenceValue());
+        entity.setTimezone(installation.timezone());
         entity.setInstalledAt(installation.installedAt());
         entity.setUpdatedAt(installation.updatedAt());
         installationRepository.save(entity);
@@ -173,7 +174,8 @@ public class InstallationStore {
                 "ENFORCE",
                 entity.getDefaultResetCadence() == null ? "NONE" : entity.getDefaultResetCadence(),
                 installedAt,
-                updatedAt);
+                updatedAt,
+                entity.getTimezone());
     }
 
     private String encryptOrNull(String plain) {

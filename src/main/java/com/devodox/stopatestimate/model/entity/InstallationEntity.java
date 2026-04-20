@@ -45,6 +45,9 @@ public class InstallationEntity {
     @Column(name = "default_reset_cadence", length = 16, nullable = false)
     private String defaultResetCadence;
 
+    @Column(name = "timezone", length = 64)
+    private String timezone;
+
     @Column(name = "installed_at", nullable = false)
     private Instant installedAt;
 
@@ -98,6 +101,9 @@ public class InstallationEntity {
 
     public String getDefaultResetCadence() { return defaultResetCadence; }
     public void setDefaultResetCadence(String v) { this.defaultResetCadence = v; }
+
+    public String getTimezone() { return timezone; }
+    public void setTimezone(String v) { this.timezone = v; }
 
     public Instant getInstalledAt() { return installedAt; }
     public void setInstalledAt(Instant v) { this.installedAt = v; }

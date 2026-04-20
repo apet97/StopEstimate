@@ -1,5 +1,10 @@
 package com.devodox.stopatestimate.service;
 
+import com.devodox.stopatestimate.api.ClockifyBackendApiClient;
+import com.devodox.stopatestimate.model.InstallationRecord;
+import com.devodox.stopatestimate.store.InstallationStore;
+import com.devodox.stopatestimate.util.ClockifyJson;
+import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,6 +12,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+
+import java.time.Clock;
 
 /**
  * Listens for {@link LifecycleReconcileRequestedEvent} published after a lifecycle transaction
@@ -27,16 +34,31 @@ public class InstallReconcileRetrier {
     private static final long[] DEFAULT_BACKOFF_MS = {2_000L, 5_000L, 10_000L};
 
     private final EstimateGuardService estimateGuardService;
+    private final InstallationStore installationStore;
+    private final ClockifyBackendApiClient backendApiClient;
+    private final Clock clock;
     private final long[] backoffMs;
 
     @Autowired
-    public InstallReconcileRetrier(EstimateGuardService estimateGuardService) {
-        this(estimateGuardService, DEFAULT_BACKOFF_MS);
+    public InstallReconcileRetrier(
+            EstimateGuardService estimateGuardService,
+            InstallationStore installationStore,
+            ClockifyBackendApiClient backendApiClient,
+            Clock clock) {
+        this(estimateGuardService, installationStore, backendApiClient, clock, DEFAULT_BACKOFF_MS);
     }
 
     // Package-private for tests that need short delays so the suite stays fast.
-    InstallReconcileRetrier(EstimateGuardService estimateGuardService, long[] backoffMs) {
+    InstallReconcileRetrier(
+            EstimateGuardService estimateGuardService,
+            InstallationStore installationStore,
+            ClockifyBackendApiClient backendApiClient,
+            Clock clock,
+            long[] backoffMs) {
         this.estimateGuardService = estimateGuardService;
+        this.installationStore = installationStore;
+        this.backendApiClient = backendApiClient;
+        this.clock = clock;
         this.backoffMs = backoffMs;
     }
 
@@ -57,6 +79,7 @@ public class InstallReconcileRetrier {
         }
         try {
             estimateGuardService.reconcileKnownProjects(workspaceId, source);
+            populateTimezoneIfMissing(workspaceId);
             log.debug("Post-lifecycle reconcile succeeded for {} ({})", workspaceId, source);
         } catch (RuntimeException e) {
             log.warn("Post-lifecycle reconcile failed for {} ({}); deferring to scheduler tick",
@@ -85,6 +108,7 @@ public class InstallReconcileRetrier {
             }
             try {
                 estimateGuardService.reconcileKnownProjects(workspaceId, source + ":retry-" + (i + 1));
+                populateTimezoneIfMissing(workspaceId);
                 log.debug("Backoff reconcile succeeded on attempt {} for {}", i + 1, source);
                 return;
             } catch (RuntimeException e) {
@@ -95,6 +119,24 @@ public class InstallReconcileRetrier {
                 }
                 log.debug("Backoff reconcile attempt {} for {} failed, retrying", i + 1, source, e);
             }
+        }
+    }
+
+    private void populateTimezoneIfMissing(String workspaceId) {
+        InstallationRecord installation = installationStore.findByWorkspaceId(workspaceId).orElse(null);
+        if (installation == null || installation.timezone() != null) {
+            return;
+        }
+        try {
+            JsonObject workspace = backendApiClient.getWorkspace(installation);
+            String timezone = ClockifyJson.string(workspace, "timeZone").orElse(null);
+            if (timezone == null) {
+                return;
+            }
+            installationStore.save(installation.withTimezone(timezone).withUpdatedAt(clock.instant()));
+            log.debug("Populated timezone={} for {}", timezone, workspaceId);
+        } catch (RuntimeException e) {
+            log.warn("Timezone fetch failed for {}; leaving null (will retry on next reconcile)", workspaceId, e);
         }
     }
 }

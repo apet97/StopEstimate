@@ -82,6 +82,7 @@ public class ClockifyLifecycleService {
 
         Optional<InstallationRecord> existing = installationStore.findByWorkspaceId(workspaceId);
         Instant installedAt = existing.map(InstallationRecord::installedAt).orElse(now);
+        String timezone = existing.map(InstallationRecord::timezone).orElse(null);
 
         InstallationRecord installation = new InstallationRecord(
                 workspaceId,
@@ -100,7 +101,8 @@ public class ClockifyLifecycleService {
                 "ENFORCE",
                 normalizeCadence(defaultResetCadence),
                 installedAt,
-                now);
+                now,
+                timezone);
         installationStore.save(installation);
 
         if (!installation.active() || !installation.enforcing()) {
