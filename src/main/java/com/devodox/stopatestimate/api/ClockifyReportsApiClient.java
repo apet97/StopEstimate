@@ -106,11 +106,11 @@ public class ClockifyReportsApiClient {
             return new ClockifyApiException("Reports rate limited (429) after one retry; deferring to scheduler", e);
         }
         if (code == 401) {
-            return new com.devodox.stopatestimate.service.ClockifyRequestAuthException(
+            return new ClockifyRequestAuthException(
                     "Reports token rejected", e);
         }
         if (code == 403) {
-            return new com.devodox.stopatestimate.service.ClockifyBackendForbiddenException(
+            return new ClockifyBackendForbiddenException(
                     "Reports forbade the request", e);
         }
         return new ClockifyApiException("Reports call failed with " + code, e);

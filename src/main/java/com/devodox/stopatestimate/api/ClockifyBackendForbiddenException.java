@@ -1,4 +1,4 @@
-package com.devodox.stopatestimate.service;
+package com.devodox.stopatestimate.api;
 
 /**
  * 403 from the Clockify backend API (insufficient addon permissions / scope mismatch / admin

@@ -1,4 +1,4 @@
-package com.devodox.stopatestimate.service;
+package com.devodox.stopatestimate.api;
 
 public class ClockifyRequestAuthException extends RuntimeException {
     public ClockifyRequestAuthException(String message) {

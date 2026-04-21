@@ -1,5 +1,7 @@
 package com.devodox.stopatestimate.service;
 
+import com.devodox.stopatestimate.api.ClockifyAccessForbiddenException;
+import com.devodox.stopatestimate.api.ClockifyRequestAuthException;
 import com.devodox.stopatestimate.model.AddonStatus;
 import com.devodox.stopatestimate.model.InstallationRecord;
 import com.devodox.stopatestimate.model.WebhookCredential;

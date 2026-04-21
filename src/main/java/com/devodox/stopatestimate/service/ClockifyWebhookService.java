@@ -1,6 +1,8 @@
 package com.devodox.stopatestimate.service;
 
 import com.cake.clockify.addonsdk.clockify.ClockifySignatureParser;
+import com.devodox.stopatestimate.api.ClockifyAccessForbiddenException;
+import com.devodox.stopatestimate.api.ClockifyRequestAuthException;
 import com.devodox.stopatestimate.model.InstallationRecord;
 import com.devodox.stopatestimate.model.WebhookCredential;
 import com.devodox.stopatestimate.model.entity.WebhookEventEntity;
