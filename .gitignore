@@ -9,3 +9,5 @@ out/
 .DS_Store
 .remember/
 .vscode/
+# Codex mirrors CLAUDE.md into AGENTS.md locally; keep it out of the repo to avoid drift.
+AGENTS.md
