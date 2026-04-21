@@ -16,7 +16,10 @@ public class VerifiedAddonContextService {
     }
 
     public VerifiedAddonContext verifyRequired(String token) {
-        return fromClaims(tokenVerificationService.verifyAndParseClaims(token));
+        // Sidebar/user tokens are re-issued per iframe load. Reject anything older than ~5m so a
+        // leaked token can't be replayed across a session boundary.
+        return fromClaims(tokenVerificationService.verifyAndParseClaims(
+                token, TokenVerificationService.SIDEBAR_MAX_IAT_AGE_SECONDS));
     }
 
     public VerifiedAddonContext fromClaims(Map<String, Object> claims) {

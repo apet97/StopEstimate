@@ -25,10 +25,15 @@ public class TokenVerificationService {
     private static final long CLOCK_SKEW_SECONDS = 60;
 
     /**
-     * Upper bound on how stale {@code iat} may be. Installation tokens may be longer-lived, but
-     * anything older than a day is almost certainly a replay.
+     * Default upper bound on how stale {@code iat} may be. Installation and webhook tokens may
+     * legitimately be longer-lived (re-delivery, retries) but anything older than a day is almost
+     * certainly a replay. Sidebar tokens use the stricter bound passed to
+     * {@link #verifyAndParseClaims(String, long)}.
      */
     private static final long MAX_IAT_AGE_SECONDS = 24 * 60 * 60;
+
+    /** Stricter max-iat bound for sidebar/user tokens. Clockify re-issues these every 30 min. */
+    public static final long SIDEBAR_MAX_IAT_AGE_SECONDS = 5 * 60;
 
     private final ObjectMapper objectMapper;
     private final AddonProperties addonProperties;
@@ -43,6 +48,15 @@ public class TokenVerificationService {
     }
 
     public Map<String, Object> verifyAndParseClaims(String jwt) {
+        return verifyAndParseClaims(jwt, MAX_IAT_AGE_SECONDS);
+    }
+
+    /**
+     * Verify the token and enforce the caller-supplied upper bound on {@code iat} staleness.
+     * Used by the sidebar/user-token path, which should reject anything older than ~5 minutes
+     * because Clockify re-issues those tokens per iframe load.
+     */
+    public Map<String, Object> verifyAndParseClaims(String jwt, long maxIatAgeSeconds) {
         if (jwt == null || jwt.isBlank()) {
             throw new InvalidAddonTokenException("Missing Clockify token");
         }
@@ -65,6 +79,13 @@ public class TokenVerificationService {
         assertClaim(claims, "type", "addon");
         assertClaim(claims, "sub", addonProperties.getKey());
 
+        // workspaceId is required downstream for every token the addon handles (lifecycle,
+        // webhook, sidebar). Reject early so callers don't have to repeat the check.
+        Object workspaceId = claims.get("workspaceId");
+        if (!(workspaceId instanceof String ws) || ws.isBlank()) {
+            throw new InvalidAddonTokenException("Clockify token is missing workspaceId claim");
+        }
+
         long nowEpochSeconds = clock.instant().getEpochSecond();
 
         long exp = requireNumericSeconds(claims, "exp");
@@ -82,7 +103,7 @@ public class TokenVerificationService {
             if (iat > nowEpochSeconds + CLOCK_SKEW_SECONDS) {
                 throw new InvalidAddonTokenException("Clockify token iat is in the future");
             }
-            if (nowEpochSeconds - iat > MAX_IAT_AGE_SECONDS) {
+            if (nowEpochSeconds - iat > maxIatAgeSeconds) {
                 throw new InvalidAddonTokenException("Clockify token iat is too old");
             }
         }
