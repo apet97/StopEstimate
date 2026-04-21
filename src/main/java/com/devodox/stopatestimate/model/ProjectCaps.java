@@ -1,6 +1,5 @@
 package com.devodox.stopatestimate.model;
 
-import java.io.Serializable;
 import java.math.BigDecimal;
 
 public record ProjectCaps(
@@ -12,7 +11,7 @@ public record ProjectCaps(
 		BigDecimal budgetLimit,
 		String budgetResetOption,
 		boolean includeExpenses,
-		ResetWindowSchedule resetWindowSchedule) implements Serializable {
+		ResetWindowSchedule resetWindowSchedule) {
 
 	public boolean hasActiveCaps() {
 		return (timeCapActive && timeLimitMs > 0) || (budgetCapActive && budgetLimit != null && budgetLimit.signum() > 0);

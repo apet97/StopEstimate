@@ -1,6 +1,5 @@
 package com.devodox.stopatestimate.model;
 
-import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
 
@@ -11,5 +10,5 @@ public record ProjectLockSnapshot(
 		List<ProjectMemberAccess> originalMembers,
 		List<String> originalUserGroupIds,
 		String reason,
-		Instant lockedAt) implements Serializable {
+		Instant lockedAt) {
 }

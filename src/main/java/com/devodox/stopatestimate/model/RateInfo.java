@@ -1,9 +1,8 @@
 package com.devodox.stopatestimate.model;
 
-import java.io.Serializable;
 import java.math.BigDecimal;
 
-public record RateInfo(BigDecimal amount, String currency, boolean configured) implements Serializable {
+public record RateInfo(BigDecimal amount, String currency, boolean configured) {
 
 	public static RateInfo empty() {
 		return new RateInfo(BigDecimal.ZERO, null, false);

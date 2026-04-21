@@ -1,6 +1,5 @@
 package com.devodox.stopatestimate.model;
 
-import java.io.Serializable;
 import java.time.Instant;
 import java.util.Map;
 
@@ -19,7 +18,7 @@ public record InstallationRecord(
         String defaultResetCadence,
         Instant installedAt,
         Instant updatedAt,
-        String timezone) implements Serializable {
+        String timezone) {
 
     public InstallationRecord(
             String workspaceId,

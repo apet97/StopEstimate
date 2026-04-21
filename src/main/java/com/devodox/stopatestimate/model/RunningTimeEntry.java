@@ -1,6 +1,5 @@
 package com.devodox.stopatestimate.model;
 
-import java.io.Serializable;
 import java.time.Instant;
 
 public record RunningTimeEntry(
@@ -9,5 +8,5 @@ public record RunningTimeEntry(
 		String userId,
 		String timeEntryId,
 		Instant start,
-		boolean billable) implements Serializable {
+		boolean billable) {
 }

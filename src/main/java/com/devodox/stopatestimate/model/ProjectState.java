@@ -1,6 +1,5 @@
 package com.devodox.stopatestimate.model;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,7 +12,7 @@ public record ProjectState(
 		List<String> userGroupIds,
 		RateInfo defaultHourlyRate,
 		RateInfo defaultCostRate,
-		ProjectCaps caps) implements Serializable {
+		ProjectCaps caps) {
 
 	public Optional<RateInfo> costRateForUser(String userId) {
 		return directMembers.stream()
