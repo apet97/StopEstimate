@@ -1,6 +1,5 @@
 package com.devodox.stopatestimate.model;
 
-import java.io.Serializable;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.Month;
@@ -15,7 +14,7 @@ public record ResetWindowSchedule(
 		Integer dayOfMonth,
 		Integer hourOfDay,
 		Month month,
-		ZoneId zoneId) implements Serializable {
+		ZoneId zoneId) {
 
 	public static ResetWindowSchedule none() {
 		return new ResetWindowSchedule(null, null, null, null, null, ZoneId.of("UTC"));
