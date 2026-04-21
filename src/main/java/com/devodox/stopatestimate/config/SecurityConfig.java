@@ -13,6 +13,7 @@ import org.springframework.security.crypto.encrypt.Encryptors;
 import org.springframework.security.crypto.encrypt.TextEncryptor;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -167,6 +168,10 @@ public class SecurityConfig {
                                 "/css/**",
                                 "/js/**",
                                 "/actuator/health").permitAll()
+                        // Any non-health actuator endpoint is denied. Spring Security uses first-match,
+                        // so /actuator/health above still passes. This keeps accidental future exposures
+                        // (env, beans, mappings, heapdump, etc.) locked even if the yml exposure list grows.
+                        .requestMatchers("/actuator/**").denyAll()
                         .requestMatchers(HttpMethod.POST, "/lifecycle/**", "/webhook/**").permitAll()
                         // /api/** tokens are validated inside the handler via
                         // VerifiedAddonContextService.verifyRequired — Spring Security is left
@@ -176,7 +181,10 @@ public class SecurityConfig {
                         .anyRequest().permitAll()
                 )
                 .headers(headers -> headers
-                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin)
+                        // Frame-ancestors in the CSP below is authoritative for iframe embedding.
+                        // Leaving X-Frame-Options in place would block Firefox, which applies both
+                        // headers with AND logic — SAMEORIGIN rejects Clockify's origin.
+                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::disable)
                         .contentTypeOptions(opts -> {})
                         .contentSecurityPolicy(csp -> csp.policyDirectives(
                                 // Sidebar renders inside Clockify's iframe; frame-ancestors pins the
@@ -189,6 +197,12 @@ public class SecurityConfig {
                                         + "script-src 'self'; "
                                         + "connect-src 'self' https://*.clockify.me"))
                         .httpStrictTransportSecurity(hsts -> hsts
+                                // Production runs behind a TLS-terminating proxy (cloudflared /
+                                // Clockify edge), so the embedded Tomcat sees http. The default
+                                // HSTS matcher only emits over https, which means the header would
+                                // silently never ship. Force emission on every request — the proxy
+                                // guarantees TLS to the browser.
+                                .requestMatcher(AnyRequestMatcher.INSTANCE)
                                 .includeSubDomains(true)
                                 .maxAgeInSeconds(31536000))
                         .referrerPolicy(rp -> rp.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
