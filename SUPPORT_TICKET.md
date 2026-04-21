@@ -24,7 +24,7 @@ This looks identical to the class of issue previously resolved in https://forum.
 
 ### What works
 
-- `GET /manifest` returns schema 1.3 with 5 webhooks, 7 scopes, PRO
+- `GET /manifest` returns schema 1.3 with 5 webhooks, 8 scopes, PRO
 - `POST /lifecycle/installed`, `/lifecycle/deleted`, `/lifecycle/status-changed`, `/lifecycle/settings-updated` — all arrive, parse cleanly, return 200
 - `GET /sidebar?auth_token=...` — arrives, serves the admin sidebar
 - `GET /api/context`, `GET /api/guard/projects` — accessed from the sidebar with `X-Addon-Token`, return 200

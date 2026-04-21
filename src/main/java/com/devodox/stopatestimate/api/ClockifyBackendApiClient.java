@@ -59,6 +59,19 @@ public class ClockifyBackendApiClient {
                 installation.installationToken());
     }
 
+    /**
+     * Returns the profile of the authenticated principal (the addon user, driven by the
+     * installation token). Used as the workspace-timezone proxy: Clockify's workspace response
+     * does not expose an IANA timezone, but {@code settings.timeZone} on the addon user's profile
+     * mirrors the installer's workspace-local clock — a meaningful default for reset alignment.
+     */
+    public JsonObject getCurrentUser(InstallationRecord installation) {
+        return getObject(
+                installation.backendUrl(),
+                "/v1/user",
+                installation.installationToken());
+    }
+
     public List<JsonObject> listInProgressTimeEntries(InstallationRecord installation) {
         return listPagedArray(
                 installation.backendUrl(),

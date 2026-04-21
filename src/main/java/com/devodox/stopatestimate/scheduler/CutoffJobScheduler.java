@@ -1,8 +1,11 @@
 package com.devodox.stopatestimate.scheduler;
 
+import com.devodox.stopatestimate.model.InstallationRecord;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.repository.WebhookEventRepository;
+import com.devodox.stopatestimate.service.ClockifyLifecycleService;
 import com.devodox.stopatestimate.service.EstimateGuardService;
+import com.devodox.stopatestimate.service.InstallReconcileRetrier;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +23,8 @@ public class CutoffJobScheduler {
     private static final Duration WEBHOOK_EVENT_RETENTION = Duration.ofHours(24);
 
     private final EstimateGuardService estimateGuardService;
+    private final ClockifyLifecycleService lifecycleService;
+    private final InstallReconcileRetrier installReconcileRetrier;
     private final WebhookEventRepository webhookEventRepository;
     private final GuardEventRepository guardEventRepository;
     private final Clock clock;
@@ -27,11 +32,15 @@ public class CutoffJobScheduler {
 
     public CutoffJobScheduler(
             EstimateGuardService estimateGuardService,
+            ClockifyLifecycleService lifecycleService,
+            InstallReconcileRetrier installReconcileRetrier,
             WebhookEventRepository webhookEventRepository,
             GuardEventRepository guardEventRepository,
             Clock clock,
             @Value("${clockify.guard-events.retention:P30D}") Duration guardEventsRetention) {
         this.estimateGuardService = estimateGuardService;
+        this.lifecycleService = lifecycleService;
+        this.installReconcileRetrier = installReconcileRetrier;
         this.webhookEventRepository = webhookEventRepository;
         this.guardEventRepository = guardEventRepository;
         this.clock = clock;
@@ -52,6 +61,19 @@ public class CutoffJobScheduler {
             estimateGuardService.reconcileAll("scheduler");
         } catch (RuntimeException e) {
             log.warn("reconcileAll failed", e);
+        }
+        // TZ-02: lifecycle retrier's 2s/5s/10s backoff may exhaust before Clockify's API gateway
+        // activates the installation token (dev tenants, slow rollouts). Re-attempt the workspace
+        // timezone fetch every scheduler tick until it succeeds so reset-window filters converge
+        // on workspace-local midnight instead of silently staying on UTC fallback.
+        try {
+            for (InstallationRecord installation : lifecycleService.findActiveInstallations()) {
+                if (installation.timezone() == null) {
+                    installReconcileRetrier.populateTimezoneIfMissing(installation.workspaceId());
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("timezone-refresh sweep failed", e);
         }
     }
 

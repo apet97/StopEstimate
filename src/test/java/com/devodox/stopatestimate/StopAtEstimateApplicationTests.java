@@ -26,6 +26,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -90,7 +91,8 @@ class StopAtEstimateApplicationTests {
                 // 5 timer/time-entry events are declarable here. Reconcile for the others runs
                 // via CutoffJobScheduler's periodic tick.
                 .andExpect(jsonPath("$.webhooks.length()").value(5))
-                .andExpect(jsonPath("$.scopes.length()").value(7))
+                .andExpect(jsonPath("$.scopes.length()").value(8))
+                .andExpect(jsonPath("$.scopes", hasItem("WORKSPACE_READ")))
                 .andExpect(jsonPath("$.settings.tabs[0].settings.length()").value(2))
                 .andExpect(jsonPath("$.settings.tabs[0].settings[*].id", containsInAnyOrder("enabled", "defaultResetCadence")))
                 .andExpect(jsonPath("$.settings.tabs[0].settings[*].accessLevel", everyItem(is("ADMINS"))));

@@ -83,7 +83,7 @@ Confirm:
 
 - App starts cleanly (no `IllegalStateException` about encryption material).
 - Flyway migrations apply (`flyway_schema_history`, `installations`, `webhook_registrations`, `project_lock_snapshots`, `cutoff_jobs`, `guard_events`).
-- `GET /manifest` returns valid JSON with `schemaVersion == "1.3"`, `key == "stop-at-estimate"`, `minimalSubscriptionPlan == "PRO"`, 1 admin-only sidebar, 4 lifecycle routes, 5 webhooks, 7 scopes, 2 settings.
+- `GET /manifest` returns valid JSON with `schemaVersion == "1.3"`, `key == "stop-at-estimate"`, `minimalSubscriptionPlan == "PRO"`, 1 admin-only sidebar, 4 lifecycle routes, 5 webhooks, 8 scopes, 2 settings.
 - `GET /actuator/health` returns `{"status":"UP"}`.
 
 ## 7. Expose HTTPS
