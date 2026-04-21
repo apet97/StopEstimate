@@ -56,7 +56,7 @@ throw new ClockifyApiException("Reports call failed with " + code, e);
 (`ClockifyBackendForbiddenException` already exists — added in commit `30084f4`.)
 
 ### RES-03 — 10s read timeout too short for paginated calls
-`src/main/java/com/devodox/stopatestimate/service/ClockifyInfrastructureConfiguration.java:26`. Split the `RestClient` customiser into two beans:
+`src/main/java/com/devodox/stopatestimate/config/ClockifyInfrastructureConfiguration.java:26`. Split the `RestClient` customiser into two beans:
 - Backend (pagination-heavy `listProjects`, `filterUsers`, `listInProgressTimeEntries`): 30s.
 - Reports: 45s.
 

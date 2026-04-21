@@ -1,4 +1,4 @@
-package com.devodox.stopatestimate.service;
+package com.devodox.stopatestimate.config;
 
 import org.springframework.boot.web.client.ClientHttpRequestFactories;
 import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
