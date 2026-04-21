@@ -90,4 +90,38 @@ class ClockifyUrlNormalizerTest {
         assertThat(ClockifyUrlNormalizer.normalizeBackendApiUrl("https://api.clockify.me"))
                 .isEqualTo("https://api.clockify.me/api");
     }
+
+    @Test
+    void stripsEmbeddedCredentials() {
+        // SEC-05 regression: userInfo in a crafted JWT must not reach outbound calls.
+        assertThat(ClockifyUrlNormalizer.normalizeBackendApiUrl(
+                "https://user:pass@api.clockify.me/api"))
+                .isEqualTo("https://api.clockify.me/api");
+    }
+
+    @Test
+    void stripsQueryAndFragment() {
+        // SEC-05 regression: query/fragment are stripped.
+        assertThat(ClockifyUrlNormalizer.normalizeBackendApiUrl(
+                "https://api.clockify.me/api?injected=yes#frag"))
+                .isEqualTo("https://api.clockify.me/api");
+    }
+
+    @Test
+    void explicitDefaultPortIsNormalizedAway() {
+        assertThat(ClockifyUrlNormalizer.normalizeBackendApiUrl("https://api.clockify.me:443/api"))
+                .isEqualTo("https://api.clockify.me/api");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://api.clockify.me:8080/api",
+            "https://api.clockify.me:4444/api",
+            "https://api.clockify.me:80/api"
+    })
+    void rejectsNonStandardHttpsPort(String raw) {
+        assertThatThrownBy(() -> ClockifyUrlNormalizer.normalizeBackendApiUrl(raw))
+                .isInstanceOf(InvalidAddonTokenException.class)
+                .hasMessageContaining("port");
+    }
 }
