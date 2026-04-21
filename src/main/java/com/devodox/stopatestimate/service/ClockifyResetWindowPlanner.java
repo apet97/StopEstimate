@@ -24,6 +24,19 @@ public class ClockifyResetWindowPlanner {
     }
 
     public ResetWindowSchedule deriveSchedule(String defaultResetCadence, JsonObject estimateReset, String... resetOptions) {
+        return deriveSchedule(defaultResetCadence, estimateReset, null, resetOptions);
+    }
+
+    /**
+     * Overload that threads the workspace timezone through so DST-sensitive reset boundaries
+     * (e.g. "first of the month at 00:00 local") align with how users see them in Clockify's UI.
+     * Passing {@code null} for {@code zone} falls back to UTC, matching legacy behaviour.
+     */
+    public ResetWindowSchedule deriveSchedule(
+            String defaultResetCadence,
+            JsonObject estimateReset,
+            ZoneId zone,
+            String... resetOptions) {
         String interval = null;
         if (estimateReset != null) {
             interval = ClockifyJson.string(estimateReset, "interval").orElse(null);
@@ -62,6 +75,6 @@ public class ClockifyResetWindowPlanner {
                 dayOfMonth,
                 hour,
                 month,
-                ZoneId.of("UTC"));
+                zone == null ? ZoneId.of("UTC") : zone);
     }
 }
