@@ -1,9 +1,9 @@
 package com.devodox.stopatestimate.web;
 
+import com.devodox.stopatestimate.api.ClockifyAccessForbiddenException;
 import com.devodox.stopatestimate.api.ClockifyApiException;
-import com.devodox.stopatestimate.service.ClockifyAccessForbiddenException;
-import com.devodox.stopatestimate.service.ClockifyBackendForbiddenException;
-import com.devodox.stopatestimate.service.ClockifyRequestAuthException;
+import com.devodox.stopatestimate.api.ClockifyBackendForbiddenException;
+import com.devodox.stopatestimate.api.ClockifyRequestAuthException;
 import com.devodox.stopatestimate.service.InvalidAddonTokenException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import com.google.gson.JsonSyntaxException;

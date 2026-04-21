@@ -1,6 +1,7 @@
 package com.devodox.stopatestimate.service;
 
 import com.devodox.stopatestimate.api.ClockifyBackendApiClient;
+import com.devodox.stopatestimate.api.ClockifyRequestAuthException;
 import com.devodox.stopatestimate.model.InstallationRecord;
 import com.devodox.stopatestimate.store.InstallationStore;
 import com.devodox.stopatestimate.util.ClockifyJson;
