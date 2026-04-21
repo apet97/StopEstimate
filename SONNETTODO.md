@@ -465,7 +465,7 @@ throw new ClockifyApiException("Reports call failed with " + code, e);
 ---
 
 ### RES-03 [HIGH] Read timeout (10s) is too short for paginated list calls
-**File:** `service/ClockifyInfrastructureConfiguration.java`  
+**File:** `config/ClockifyInfrastructureConfiguration.java`  
 **Problem:** `listProjects`, `filterUsers`, and `listInProgressTimeEntries` (up to 1000 pages) hit the 10s timeout under large workspaces or slow Clockify responses.  
 **Fix:** Use separate `RestClient` instances with tuned timeouts:
 - Backend API (pagination-heavy): 30s read timeout

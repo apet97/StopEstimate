@@ -187,12 +187,12 @@ were closed in the 2026-04-18 commit:
 ### Architecture / naming
 - [ ] **[LOW]** Rename `FileBacked*Store` → `*Store` (or fold into `*Repository`); move out of `store/`.
 - [ ] **[LOW]** Drop fake `throws IOException` from store signatures and the matching catch blocks in callers (~8 sites).
-- [ ] **[LOW]** Remove `implements Serializable` from `ProjectCaps`/`ProjectState`/`ProjectUsage`/`InstallationRecord` records — no consumer.
+- [x] **[LOW]** Remove `implements Serializable` from `ProjectCaps`/`ProjectState`/`ProjectUsage`/`InstallationRecord` records — no consumer.
 - [ ] **[LOW]** Resolve `@Lazy ClockifyCutoffService` cycle in `ClockifyLifecycleService.java:46` via an orchestrator service or `ApplicationEvent`.
 - [ ] **[LOW]** Introduce `ClockifyClient` facade returning domain records — services should not see `JsonObject`.
 - [ ] **[LOW]** Convert `GuardReason` to `sealed interface GuardOutcome permits Triggered, BelowCap, NoCaps`.
 - [ ] **[LOW]** Move HTTP-derived exceptions (`Clockify{AccessForbidden,RequestAuth}Exception`, `InvalidAddonTokenException`) into `api/`, give them a shared `ClockifyException` base.
-- [ ] **[LOW]** Move `ClockifyInfrastructureConfiguration` to `config/`.
+- [x] **[LOW]** Move `ClockifyInfrastructureConfiguration` to `config/`.
 - [ ] **[LOW]** Reserve `Clockify*` prefix for adapters/clients only; rename internal services (`CutoffService`, `ResetWindowPlanner`, `WebhookIngestService`).
 - [ ] **[LOW]** `GuardEventEntity` + `GuardEventRepository` exist but have no writer. Either wire `GuardEventRecorder` into every guard fire or delete entity+repo+migration.
 - [ ] **[LOW]** Drop unused `enforcementMode` field on `InstallationRecord` (always `"ENFORCE"`); centralize setting parsing in a `SettingsParser`.
