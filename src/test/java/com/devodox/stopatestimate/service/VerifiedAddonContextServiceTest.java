@@ -102,7 +102,9 @@ class VerifiedAddonContextServiceTest {
 
     @Test
     void verifyRequiredDelegatesToTokenVerificationService() {
-        when(tokenVerificationService.verifyAndParseClaims("tok"))
+        // Sidebar path uses the stricter 5m max-iat overload, not the default 24h one.
+        when(tokenVerificationService.verifyAndParseClaims("tok",
+                TokenVerificationService.SIDEBAR_MAX_IAT_AGE_SECONDS))
                 .thenReturn(Map.of("workspaceId", "ws-1"));
 
         VerifiedAddonContext ctx = service.verifyRequired("tok");

@@ -152,6 +152,65 @@ class TokenVerificationServiceTest {
         assertThat(resolved.get("userId")).isEqualTo("legacy-user-id");
     }
 
+    @Test
+    void rejectsMissingWorkspaceId() {
+        Map<String, Object> claims = TestJwtFactory.baseValidClaims("ws-1");
+        claims.remove("workspaceId");
+        String token = TestJwtFactory.signClaims(claims);
+        assertThatThrownBy(() -> service(Clock.systemUTC()).verifyAndParseClaims(token))
+                .isInstanceOf(InvalidAddonTokenException.class)
+                .hasMessageContaining("workspaceId");
+    }
+
+    @Test
+    void rejectsBlankWorkspaceId() {
+        Map<String, Object> claims = TestJwtFactory.baseValidClaims("ws-1");
+        claims.put("workspaceId", "   ");
+        String token = TestJwtFactory.signClaims(claims);
+        assertThatThrownBy(() -> service(Clock.systemUTC()).verifyAndParseClaims(token))
+                .isInstanceOf(InvalidAddonTokenException.class)
+                .hasMessageContaining("workspaceId");
+    }
+
+    @Test
+    void clockSkewBelowThresholdIsTolerated() {
+        // iat slightly in the future (within ±60s skew) must pass, not be rejected as "in the future".
+        Map<String, Object> claims = TestJwtFactory.baseValidClaims("ws-1");
+        claims.put("iat", Instant.now().plusSeconds(30).getEpochSecond());
+        String token = TestJwtFactory.signClaims(claims);
+        assertThat(service(Clock.systemUTC()).verifyAndParseClaims(token).get("workspaceId"))
+                .isEqualTo("ws-1");
+    }
+
+    @Test
+    void clockSkewAboveThresholdIsRejected() {
+        // iat more than 60s in the future exceeds skew tolerance and must be rejected.
+        Map<String, Object> claims = TestJwtFactory.baseValidClaims("ws-1");
+        claims.put("iat", Instant.now().plusSeconds(120).getEpochSecond());
+        String token = TestJwtFactory.signClaims(claims);
+        assertThatThrownBy(() -> service(Clock.systemUTC()).verifyAndParseClaims(token))
+                .isInstanceOf(InvalidAddonTokenException.class)
+                .hasMessageContaining("future");
+    }
+
+    @Test
+    void sidebarMaxIatAgeIsStricterThanDefault() {
+        // iat older than 5m but within the 24h default; caller supplies the stricter bound.
+        Map<String, Object> claims = TestJwtFactory.baseValidClaims("ws-1");
+        claims.put("iat", Instant.now().minusSeconds(10 * 60).getEpochSecond());
+        String token = TestJwtFactory.signClaims(claims);
+        TokenVerificationService svc = service(Clock.systemUTC());
+
+        // Default (24h) accepts.
+        assertThat(svc.verifyAndParseClaims(token).get("workspaceId")).isEqualTo("ws-1");
+
+        // Sidebar bound (5m) rejects.
+        assertThatThrownBy(() -> svc.verifyAndParseClaims(
+                token, TokenVerificationService.SIDEBAR_MAX_IAT_AGE_SECONDS))
+                .isInstanceOf(InvalidAddonTokenException.class)
+                .hasMessageContaining("too old");
+    }
+
     private TokenVerificationService service(Clock clock) {
         return new TokenVerificationService(objectMapper, addonProperties, clock);
     }
