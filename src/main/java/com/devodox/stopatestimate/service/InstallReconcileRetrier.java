@@ -122,21 +122,67 @@ public class InstallReconcileRetrier {
         }
     }
 
-    private void populateTimezoneIfMissing(String workspaceId) {
+    /**
+     * Best-effort workspace-timezone fetch + persist. No-op if timezone is already set or the
+     * installation is gone. Fails quietly with a WARN — callers retry on next reconcile.
+     *
+     * <p>Public so {@code CutoffJobScheduler.tick} can retry per-workspace on every 60s tick
+     * when the post-install lifecycle retry window (2s/5s/10s) exhausts before Clockify's API
+     * gateway activates the installation token. Without scheduler-driven retry a persistent
+     * activation race would leave {@code timezone} null forever (report filters silently
+     * fall back to UTC, misaligning resets on non-UTC workspaces).
+     */
+    public void populateTimezoneIfMissing(String workspaceId) {
         InstallationRecord installation = installationStore.findByWorkspaceId(workspaceId).orElse(null);
         if (installation == null || installation.timezone() != null) {
             return;
         }
         try {
-            JsonObject workspace = backendApiClient.getWorkspace(installation);
-            String timezone = ClockifyJson.string(workspace, "timeZone").orElse(null);
+            String timezone = extractInstallerTimezone(installation);
             if (timezone == null) {
                 return;
             }
             installationStore.save(installation.withTimezone(timezone).withUpdatedAt(clock.instant()));
-            log.debug("Populated timezone={} for {}", timezone, workspaceId);
+            log.info("Populated timezone={} for workspace={}", timezone, workspaceId);
         } catch (RuntimeException e) {
             log.warn("Timezone fetch failed for {}; leaving null (will retry on next reconcile)", workspaceId, e);
         }
+    }
+
+    /**
+     * Clockify's {@code GET /v1/workspaces/{id}} response does not expose an IANA timezone
+     * (observed Apr 2026 — the workspace entity has no {@code timeZone} field and
+     * {@code workspaceSettings.lockTimeZone} is null for every workspace we checked). The
+     * most reliable proxy is the authenticated principal's {@code settings.timeZone} —
+     * with the installation token, that's the addon user whose profile mirrors the
+     * installer's workspace-local clock. Falls back to the workspace payload shape in case
+     * Clockify re-exposes a workspace-level timezone field in the future.
+     */
+    private String extractInstallerTimezone(InstallationRecord installation) {
+        JsonObject user = backendApiClient.getCurrentUser(installation);
+        if (user != null) {
+            JsonObject settings = ClockifyJson.object(user, "settings");
+            String userTz = ClockifyJson.string(settings, "timeZone").orElse(null);
+            if (userTz != null) {
+                return userTz;
+            }
+        }
+        JsonObject workspace = backendApiClient.getWorkspace(installation);
+        if (workspace == null) {
+            return null;
+        }
+        String top = ClockifyJson.string(workspace, "timeZone").orElse(null);
+        if (top != null) {
+            return top;
+        }
+        JsonObject ws = ClockifyJson.object(workspace, "workspaceSettings");
+        if (ws == null) {
+            return null;
+        }
+        String nested = ClockifyJson.string(ws, "timeZone").orElse(null);
+        if (nested != null) {
+            return nested;
+        }
+        return ClockifyJson.string(ws, "lockTimeZone").orElse(null);
     }
 }

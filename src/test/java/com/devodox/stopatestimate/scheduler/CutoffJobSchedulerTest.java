@@ -2,7 +2,9 @@ package com.devodox.stopatestimate.scheduler;
 
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.repository.WebhookEventRepository;
+import com.devodox.stopatestimate.service.ClockifyLifecycleService;
 import com.devodox.stopatestimate.service.EstimateGuardService;
+import com.devodox.stopatestimate.service.InstallReconcileRetrier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,7 +37,13 @@ class CutoffJobSchedulerTest {
         guardEventRepository = mock(GuardEventRepository.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         scheduler = new CutoffJobScheduler(
-                cutoffService, webhookEventRepository, guardEventRepository, clock, RETENTION);
+                cutoffService,
+                mock(ClockifyLifecycleService.class),
+                mock(InstallReconcileRetrier.class),
+                webhookEventRepository,
+                guardEventRepository,
+                clock,
+                RETENTION);
     }
 
     @Test

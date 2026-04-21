@@ -63,7 +63,12 @@ public class AddonManifestConfiguration {
                         ClockifyScope.USER_READ,
                         ClockifyScope.EXPENSE_READ,
                         // Required by ClockifyReportsApiClient calls (summary + expense reports).
-                        ClockifyScope.REPORTS_READ))
+                        ClockifyScope.REPORTS_READ,
+                        // Required by ClockifyBackendApiClient.getWorkspace for timezone lookup
+                        // in InstallReconcileRetrier. Without it the backend returns 401 and the
+                        // timezone column stays null, silently degrading reset-window alignment
+                        // to UTC on non-UTC workspaces.
+                        ClockifyScope.WORKSPACE_READ))
                 .build();
     }
 

@@ -12,7 +12,7 @@ Built for workspaces where an estimate is a *commitment*, not a soft target. The
 |---|---|
 | **Status** | Runtime-verified end-to-end on the Clockify developer workspace. Ready for private install on Pro workspaces. |
 | **Tests** | 61 / 61 passing (`./mvnw test`) |
-| **Manifest** | schema `1.3`, PRO, 1 admin sidebar, 4 lifecycle, 5 webhooks, 7 scopes, 2 settings |
+| **Manifest** | schema `1.3`, PRO, 1 admin sidebar, 4 lifecycle, 5 webhooks, 8 scopes, 2 settings |
 | **Hard-stop mechanism** | Webhook (instant) + scheduler tick (≤60s backstop). See [How enforcement works](#how-enforcement-works). |
 | **Audit trail** | Every lock / unlock / cutoff / timer-stop persisted in `guard_events`, exposed via `GET /api/guard/events` |
 | **Data store** | PostgreSQL (not file-backed). Installation tokens + webhook tokens AES-256 at rest. |
@@ -70,7 +70,7 @@ Two independent paths notice timer activity. Either one triggers the same guard 
 - 1 admin-only sidebar at `/sidebar` (displays current guard state and recent events)
 - 4 lifecycle routes: `installed`, `deleted`, `status-changed`, `settings-updated`
 - 5 manifest-declared webhooks (`NEW_TIMER_STARTED`, `TIMER_STOPPED`, `NEW_TIME_ENTRY`, `TIME_ENTRY_UPDATED`, `TIME_ENTRY_DELETED`). `PROJECT_UPDATED` and the four `EXPENSE_*` events are not declarable under schema 1.3; their cap-state changes are picked up by the 60s reconcile scheduler. See [SPEC.md §1](./SPEC.md) for the full rationale and the hibernated controller plumbing.
-- 7 scopes: `TIME_ENTRY_READ/WRITE`, `PROJECT_READ/WRITE`, `USER_READ`, `EXPENSE_READ`, `REPORTS_READ`
+- 8 scopes: `TIME_ENTRY_READ/WRITE`, `PROJECT_READ/WRITE`, `USER_READ`, `EXPENSE_READ`, `REPORTS_READ`, `WORKSPACE_READ` (workspace timezone lookup)
 - 2 admin-only settings: `enabled` (checkbox, default `true`), `defaultResetCadence` (dropdown: `NONE` / `WEEKLY` / `MONTHLY` / `YEARLY`)
 - `minimalSubscriptionPlan: "PRO"`
 - Hard-stop behavior only — no observe-only mode
@@ -139,7 +139,7 @@ Expose `http://localhost:8080` over HTTPS (ngrok, cloudflared) and install priva
 
 ```bash
 curl -s http://localhost:8080/manifest | jq '{schema:.schemaVersion, webhooks:(.webhooks|length), scopes:(.scopes|length), plan:.minimalSubscriptionPlan}'
-# → {"schema":"1.3","webhooks":5,"scopes":7,"plan":"PRO"}
+# → {"schema":"1.3","webhooks":5,"scopes":8,"plan":"PRO"}
 
 curl -s http://localhost:8080/actuator/health
 # → {"status":"UP"}
@@ -179,7 +179,7 @@ See [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md). Key items:
 ## Completion gates
 
 - [x] `./mvnw -B test` — 61/61 green
-- [x] `GET /manifest` — schema `1.3`, `minimalSubscriptionPlan == "PRO"`, 1 admin sidebar, 4 lifecycle, 5 webhooks, 7 scopes, 2 settings
+- [x] `GET /manifest` — schema `1.3`, `minimalSubscriptionPlan == "PRO"`, 1 admin sidebar, 4 lifecycle, 5 webhooks, 8 scopes, 2 settings
 - [x] `GET /actuator/health` — `UP`, including database connectivity
 - [x] Private install on a Pro workspace succeeds and persists workspace state
 - [x] Hard-stop and reconcile flows verified against a real project with caps — timer end set at cap boundary, memberships pruned to snapshot, `guard_events` rows landed

@@ -16,7 +16,7 @@ All items should be confirmed from the current commit.
   - `key == "stop-at-estimate"`
   - `minimalSubscriptionPlan == "PRO"`
   - 1 sidebar with `accessLevel == "ADMINS"` at path `/sidebar`
-  - 4 lifecycle routes, 5 webhooks, 7 scopes
+  - 4 lifecycle routes, 5 webhooks, 8 scopes
   - 2 admin-only settings: `enabled`, `defaultResetCadence`
 - [ ] Reviewer workspace has **Cost Analysis** enabled if budget-cap enforcement is part of the validation plan. Time-cap enforcement works without it; budget-cap enforcement derives labor cost from the summary report, which only returns `amounts` on workspaces with Cost Analysis enabled.
 - [ ] `GET /actuator/health` returns `UP` including database check.

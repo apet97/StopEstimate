@@ -67,6 +67,10 @@ re-enter review — they are not dead code.
 - `EXPENSE_READ`
 - `REPORTS_READ` — required by the Clockify Reports API calls that drive guard summaries
   (summary report for tracked time + labor cost, expense report when `includeExpenses` is set)
+- `WORKSPACE_READ` — required for `GET /v1/workspaces/{id}` which `InstallReconcileRetrier`
+  calls once after the first successful post-install reconcile to cache the workspace's IANA
+  timezone onto the installation row. Without it the backend returns 401 and reset-window
+  report filters silently fall back to UTC on non-UTC workspaces.
 
 ### Structured Settings
 
