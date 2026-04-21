@@ -46,7 +46,8 @@ public class ProjectUsageService {
 
     public ProjectState loadProjectState(InstallationRecord installation, String projectId) {
         JsonObject project = backendApiClient.getProject(installation, projectId);
-        ProjectCaps caps = parseCaps(project, installation.defaultResetCadenceValue());
+        ProjectCaps caps = parseCaps(
+                project, installation.defaultResetCadenceValue(), resolveZone(installation.timezone()));
         return new ProjectState(
                 installation.workspaceId(),
                 projectId,
@@ -130,7 +131,7 @@ public class ProjectUsageService {
                 ClockifyJson.bool(entry, "billable").orElse(false));
     }
 
-    private ProjectCaps parseCaps(JsonObject project, String defaultResetCadence) {
+    private ProjectCaps parseCaps(JsonObject project, String defaultResetCadence, ZoneId zone) {
         JsonObject timeEstimate = ClockifyJson.object(project, "timeEstimate");
         JsonObject budgetEstimate = ClockifyJson.object(project, "budgetEstimate");
         JsonObject estimateReset = ClockifyJson.object(project, "estimateReset");
@@ -140,6 +141,7 @@ public class ProjectUsageService {
         ResetWindowSchedule schedule = resetWindowPlanner.deriveSchedule(
                 defaultResetCadence,
                 estimateReset,
+                zone,
                 timeEstimate == null ? null : ClockifyJson.string(timeEstimate, "resetOption").orElse(null),
                 budgetEstimate == null ? null : ClockifyJson.string(budgetEstimate, "resetOption").orElse(null));
 
