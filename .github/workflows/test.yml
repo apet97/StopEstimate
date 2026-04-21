@@ -13,14 +13,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pom.xml pulls com.cake.clockify:addon-sdk from
+      # maven.pkg.github.com/clockify/addon-java-sdk. GitHub Packages Maven
+      # registries require auth even for public packages; the default
+      # GITHUB_TOKEN can't read packages from another org, so we rely on
+      # a repo-scoped PAT (GH_PACKAGES_TOKEN, read:packages) set as a secret.
+      # server-id below MUST match <repository><id>github</id> in pom.xml.
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
+          server-id: github
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
 
       - name: Run unit tests
+        env:
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_PASSWORD: ${{ secrets.GH_PACKAGES_TOKEN }}
         run: ./mvnw -B -ntp test
 
       - name: Upload surefire reports on failure
@@ -43,8 +55,14 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+          server-id: github
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
 
       - name: Run verify (unit + Testcontainers IT)
+        env:
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_PASSWORD: ${{ secrets.GH_PACKAGES_TOKEN }}
         run: ./mvnw -B -ntp verify
 
       - name: Upload surefire + failsafe reports on failure
