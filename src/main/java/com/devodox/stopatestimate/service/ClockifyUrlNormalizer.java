@@ -46,6 +46,15 @@ public final class ClockifyUrlNormalizer {
             throw new InvalidAddonTokenException("Clockify backend URL host is not permitted");
         }
 
+        // Only accept the implicit https port. A JWT carrying
+        // `https://api.clockify.me:4444/api` would otherwise be honored verbatim and let an
+        // attacker who can craft a JWT point the addon at a non-production port behind the
+        // same hostname (e.g. a staging tier bound to an odd port).
+        int port = uri.getPort();
+        if (port != -1 && port != 443) {
+            throw new InvalidAddonTokenException("Clockify backend URL port is not permitted");
+        }
+
         String path = uri.getPath() == null ? "" : uri.getPath().replaceAll("/+$", "");
         if (path.isBlank() || "/".equals(path)) {
             path = "/api";
@@ -58,9 +67,10 @@ public final class ClockifyUrlNormalizer {
         // SEC-05: drop userInfo, query, and fragment from the normalized URL. A crafted
         // JWT backendUrl like `https://user:pass@api.clockify.me/api?inject=true#frag`
         // would otherwise propagate embedded credentials, arbitrary query params, and a
-        // fragment into every outbound Clockify call.
+        // fragment into every outbound Clockify call. With the port check above we can hard-code
+        // -1 so the rebuilt URI always uses the default https port.
         try {
-            return new URI("https", null, hostLower, uri.getPort(), path, null, null).toString();
+            return new URI("https", null, hostLower, -1, path, null, null).toString();
         } catch (URISyntaxException e) {
             throw new InvalidAddonTokenException("Failed to rebuild Clockify backend URL", e);
         }
