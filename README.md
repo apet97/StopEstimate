@@ -16,7 +16,7 @@ Server-side enforcement: once a project hits its cap, contributors can't keep tr
 | **Hard-stop mechanism** | Webhook (instant) + scheduler tick (≤60s backstop). See [How enforcement works](#how-enforcement-works). |
 | **Audit trail** | Every lock / unlock / cutoff / timer-stop persisted in `guard_events`, exposed via `GET /api/guard/events` |
 | **Data store** | PostgreSQL (not file-backed). Installation tokens + webhook tokens AES-256 at rest. |
-| **Webhook delivery** | Confirmed working on production Pro workspaces (verified 2026-04-19). The developer workspace `69bda6b317a0c5babe34b4ff` shows zero delivery attempts — Clockify-side state issue isolated to that one tenant; see [Known issues](#known-issues). Production cutover takes the webhook path; the 60s scheduler tick remains the durable backstop on either workspace. |
+| **Webhook delivery** | Confirmed working on production Pro workspaces (verified 2026-04-19). The 60s scheduler tick remains the durable backstop. |
 
 ---
 
@@ -95,9 +95,7 @@ Two independent paths notice timer activity. Either one triggers the same guard 
 | `src/main/resources` | `application.yml`, sidebar Thymeleaf + JS, Flyway migrations, Clockify RS256 public key |
 | `src/test` | Unit tests for guard engine + `@SpringBootTest` coverage for manifest, auth, lifecycle, webhooks, protected APIs, async backoff |
 | `Dockerfile`, `docker-compose.yml`, `.env.example` | Local + production build and run |
-| [`PRD.md`](./PRD.md), [`SPEC.md`](./SPEC.md), [`TECH_STACK.md`](./TECH_STACK.md), [`ARCHITECTURE.md`](./ARCHITECTURE.md), [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) | Locked product + technical contract |
-| [`0_TO_WORKING.md`](./0_TO_WORKING.md) | Runbook from clean machine to a working private install for validation |
-| [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md) | Marketplace submission readiness checklist |
+| [`SPEC.md`](./SPEC.md), [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Locked product + technical contract |
 
 ---
 
@@ -116,7 +114,7 @@ Two independent paths notice timer activity. Either one triggers the same guard 
 
 ## Running locally
 
-See [`0_TO_WORKING.md`](./0_TO_WORKING.md) for the full runbook. Summary:
+Summary:
 
 ```bash
 docker compose up -d postgres
@@ -144,24 +142,3 @@ curl -s http://localhost:8080/actuator/health
 # → {"status":"UP"}
 ```
 
-
-
-## Publishing to the Clockify Marketplace
-
-See [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md). Key items:
-
-- The Pro plan gate is fixed at publish time.
-- Submission requires a reviewer-accessible install plus brand assets, a privacy/security summary, and validation evidence across at least two Pro workspaces.
-- Budget-cap enforcement requires workspace **Cost Analysis** enabled (time-cap works without it).
-
----
-
-## Completion gates
-
-- [x] `./mvnw -B test` — 181/181 green
-- [x] `GET /manifest` — schema `1.3`, `minimalSubscriptionPlan == "PRO"`, 1 admin sidebar, 4 lifecycle, 5 webhooks, 8 scopes, 2 settings
-- [x] `GET /actuator/health` — `UP`, including database connectivity
-- [x] Private install on a Pro workspace succeeds and persists workspace state
-- [x] Hard-stop and reconcile flows verified against a real project with caps — timer end set at cap boundary, memberships pruned to snapshot, `guard_events` rows landed
-- [x] Webhook deliveries confirmed working on production Pro workspaces (2026-04-19)
-- [ ] Submission checklist in [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md) complete
