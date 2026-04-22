@@ -100,6 +100,5 @@ ambiguous after checking.
 - `SPEC.md` — feature spec, routes, scopes, lifecycle, webhook set.
 - `TECH_STACK.md`, `ARCHITECTURE.md`, `IMPLEMENTATION.md` — design.
 - `0_TO_WORKING.md` — local boot verification.
-- `TODO.md`, `FOLLOWUP_TODO.md`, `SONNETTODO.md` — audit backlog. Partially
-  stale; re-verify each item against the current tree before acting.
+- `PUBLISH_CHECKLIST.md` — marketplace submission readiness checklist.
 - `docs/NEXT_SESSION.md` — kickoff prompt for the next maintenance pass.
