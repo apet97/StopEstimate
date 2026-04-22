@@ -98,7 +98,6 @@ Two independent paths notice timer activity. Either one triggers the same guard 
 | [`PRD.md`](./PRD.md), [`SPEC.md`](./SPEC.md), [`TECH_STACK.md`](./TECH_STACK.md), [`ARCHITECTURE.md`](./ARCHITECTURE.md), [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) | Locked product + technical contract |
 | [`0_TO_WORKING.md`](./0_TO_WORKING.md) | Runbook from clean machine to a working private install for validation |
 | [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md) | Marketplace submission readiness checklist |
-| [`TODO.md`](./TODO.md) | Prioritized engineering backlog, with a resolved-items log at the top |
 
 ---
 
@@ -160,10 +159,6 @@ This happens if the addon responded with an error (e.g. `401 Unauthorized` casca
 
 **Impact on this addon**: Minimal. In prod the webhook path drives near-instant reconcile; if webhooks fail or get stuck, the 60s scheduler tick acts as a durable backstop (≤60s from breach) to stop timers.
 
-### Internal — see [TODO.md](./TODO.md) for the full backlog
-
-The 2026-04-18 pass closed: `guard_events` writes, webhook `event_type` persistence, regression tests for two runtime fixes, URI-tag log noise, install-time 401 backoff. Full table at the top of `TODO.md`.
-
 ---
 
 ## Publishing to the Clockify Marketplace
@@ -183,5 +178,5 @@ See [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md). Key items:
 - [x] `GET /actuator/health` — `UP`, including database connectivity
 - [x] Private install on a Pro workspace succeeds and persists workspace state
 - [x] Hard-stop and reconcile flows verified against a real project with caps — timer end set at cap boundary, memberships pruned to snapshot, `guard_events` rows landed
-- [x] Webhook deliveries confirmed working on production Pro workspaces (2026-04-19); dev-tenant unstick (Clockify-side, draft in `SUPPORT_TICKET.md`) is no longer release-blocking
+- [x] Webhook deliveries confirmed working on production Pro workspaces (2026-04-19)
 - [ ] Submission checklist in [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md) complete

@@ -61,11 +61,11 @@ READ FIRST: `CLAUDE.md`. Non-negotiables (summary):
   `service/InvalidAddonTokenException` stays in `service/` — our own
   auth error, not a Clockify response.
 
-The audit docs (`TODO.md`, `SONNETTODO.md`, `FOLLOWUP_TODO.md`) are
-partially stale. Re-verify every item against the current tree before
-implementing. If the behavior the audit describes is already in the code,
-move on and paste `file:line` evidence into the PR body rather than
-reinventing.
+Before touching any item below, re-verify it against the current tree.
+Earlier audit docs have been retired from the repo; rely on `git log`,
+`grep`, and code reading rather than stale scratchpads. Paste `file:line`
+evidence into PR bodies so the next reader doesn't have to repeat the
+investigation.
 
 ## Work list for THIS pass, ranked
 
@@ -89,7 +89,8 @@ not `ClockifyApiException`. Reparenting would change what three existing
 
 Only do this PR if you tighten the catches first (narrow to specific
 subtypes) OR cover the new behavior with failing-first tests. If neither
-is clean, skip and document in `TODO.md` that the split is intentional.
+is clean, skip and document the decision in a code comment on
+`ClockifyApiException` so future readers see why the hierarchy is split.
 
 **H2. MockRestServiceServer tests for `classify()` in both clients.**
 
