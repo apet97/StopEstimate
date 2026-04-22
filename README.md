@@ -144,22 +144,7 @@ curl -s http://localhost:8080/actuator/health
 # → {"status":"UP"}
 ```
 
----
 
-## Known issues
-
-### External — Clockify addon webhook delivery stuck on the dev workspace only
-
-**Production status:** webhook deliveries arrive normally on production Pro workspaces (verified 2026-04-19) — `NEW_TIMER_STARTED` / `NEW_TIME_ENTRY` etc. fire as soon as the user-side action lands, and the addon's per-route handlers receive the signed POST and reconcile within seconds. The 5 manifest-declared webhooks are the primary low-latency path in prod.
-
-**Dev workspace `69bda6b317a0c5babe34b4ff`:** Previously observed that addon-registered webhooks never received deliveries. 
-This happens if the addon responded with an error (e.g. `401 Unauthorized` cascading from API unresponsiveness) or timed out during the initial `POST /lifecycle/installed` exchange. In such cases, Clockify **silently aborts registering the webhooks** specified in the manifest, even though the application reports active.
-
-**Resolution**: To fix missing webhooks, simply click **Save** in the Clockify Developer Console or fully uninstall and reinstall the add-on to force a new attempt to register manifest webhooks.
-
-**Impact on this addon**: Minimal. In prod the webhook path drives near-instant reconcile; if webhooks fail or get stuck, the 60s scheduler tick acts as a durable backstop (≤60s from breach) to stop timers.
-
----
 
 ## Publishing to the Clockify Marketplace
 
