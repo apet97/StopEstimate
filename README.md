@@ -1,8 +1,8 @@
 # Stop @ Estimate
 
-> Clockify marketplace add-on that **stops running timers and locks projects the moment either a time estimate or a budget estimate is reached**, and automatically restores them when the cap condition clears.
+> Clockify marketplace add-on that stops running timers and locks projects the moment either a time estimate or a budget estimate is reached, and restores them when the cap condition clears.
 
-Built for workspaces where an estimate is a *commitment*, not a soft target. The add-on enforces the cap on the server side — users can't keep racking up tracked time or cost past the number the admin set.
+Server-side enforcement: once a project hits its cap, contributors can't keep tracking time or cost against it until an admin raises the estimate, a reset window reopens, or earlier entries are edited down.
 
 ---
 
@@ -10,8 +10,8 @@ Built for workspaces where an estimate is a *commitment*, not a soft target. The
 
 | | |
 |---|---|
-| **Status** | Runtime-verified end-to-end on the Clockify developer workspace. Ready for private install on Pro workspaces. |
-| **Tests** | 61 / 61 passing (`./mvnw test`) |
+| **Status** | Private install validated on a Pro workspace. Hard-stop, restore, and webhook paths verified against live data. |
+| **Tests** | 181 / 181 passing (`./mvnw -B test`); CI runs unit + Testcontainers jobs on ubuntu-latest. |
 | **Manifest** | schema `1.3`, PRO, 1 admin sidebar, 4 lifecycle, 5 webhooks, 8 scopes, 2 settings |
 | **Hard-stop mechanism** | Webhook (instant) + scheduler tick (≤60s backstop). See [How enforcement works](#how-enforcement-works). |
 | **Audit trail** | Every lock / unlock / cutoff / timer-stop persisted in `guard_events`, exposed via `GET /api/guard/events` |
@@ -128,7 +128,7 @@ openssl rand -hex 32   # APP_ENCRYPTION_SALT_HEX (>= 64 hex chars / 256 bits)
 
 export $(grep -v '^#' .env | xargs)
 
-./mvnw -B test             # 61/61 green
+./mvnw -B test             # 181/181 green
 ./mvnw -B spring-boot:run  # starts on :8080
 ```
 
@@ -173,7 +173,7 @@ See [`PUBLISH_CHECKLIST.md`](./PUBLISH_CHECKLIST.md). Key items:
 
 ## Completion gates
 
-- [x] `./mvnw -B test` — 61/61 green
+- [x] `./mvnw -B test` — 181/181 green
 - [x] `GET /manifest` — schema `1.3`, `minimalSubscriptionPlan == "PRO"`, 1 admin sidebar, 4 lifecycle, 5 webhooks, 8 scopes, 2 settings
 - [x] `GET /actuator/health` — `UP`, including database connectivity
 - [x] Private install on a Pro workspace succeeds and persists workspace state
