@@ -1,35 +1,88 @@
-# CLAUDE.md
+# stop@estimate — Claude guide
 
-Use this folder as the full implementation contract for `stop@estimate`.
+Clockify add-on. Hard-stops project timers when a time-budget or money-budget
+estimate is reached. Java 21 + Spring Boot 3.3 + PostgreSQL + Flyway +
+Thymeleaf + vanilla JS.
 
-## Read First
+**Phase:** maintenance. Implementation is live; `./mvnw -B test` is 181/181
+on `main`; CI (unit + Testcontainers, ubuntu-latest) is green end-to-end.
 
-Read these files in order before writing code:
+## Non-negotiables
 
-1. `README.md`
-2. `PRD.md`
-3. `SPEC.md`
-4. `TECH_STACK.md`
-5. `ARCHITECTURE.md`
-6. `IMPLEMENTATION.md`
-7. `0_TO_WORKING.md`
+Locked by manifest, spec, or security posture. Don't weaken without explicit
+product approval.
 
-## What You Are Building
+- Manifest key `stop-at-estimate`, schema `1.3`.
+- `requireProPlan()` stays. SPEC §1, PRD, README, and the manifest test all
+  assume PRO.
+- `X-Addon-Token` header for addon APIs — never `Authorization`.
+- RS256 JWT verification; require numeric `exp`; validate `nbf`/`iat` when
+  present.
+- Never hardcode Clockify API URLs — derive from installation. Normalize
+  `backendUrl` via `ClockifyUrlNormalizer`: HTTPS only, host must match
+  `*.clockify.me`, port 443 or absent.
+- Installation tokens stay backend-only. Strip `auth_token` from iframe URLs
+  after extraction.
+- PostgreSQL for all state. No file-backed storage.
+- One admin sidebar. No widget, no observe-only mode, no extra UI surfaces.
 
-Build a Clockify add-on with:
+## Workflow
 
-- folder `addons-me/stop@estimate`
-- manifest key `stop-at-estimate`
-- product name `Stop @ Estimate`
-- one admin sidebar
-- hard-stop enforcement when either a project time estimate or budget estimate is reached
-- Java 21 + Spring Boot + PostgreSQL + Flyway + Thymeleaf + vanilla JS
+- Direct push to `main` is blocked. One concern = one branch = one PR.
+- Merge via `gh pr merge N --merge`, then
+  `git checkout main && git pull && git branch -d <br> && git push origin --delete <br>`.
+- `./mvnw -B test` after every change; must stay 181+ green.
+- CI gates merges. Before merging, check
+  `gh pr view N --json mergeable,mergeStateStatus` — don't merge on UNSTABLE.
+  Use `gh pr checks N --watch` after push.
+- Testcontainers locally are skipped (colima Docker API < docker-java 3.4.0
+  minimum). CI runs them on ubuntu-latest.
+- Never run destructive git operations (`reset --hard`, `push --force`,
+  `branch -D`) without explicit user instruction.
+- If a pre-commit hook fails, fix and re-commit; never bypass with
+  `--no-verify`.
 
-This folder is docs-only right now. Your job is to turn it into a runnable implementation without changing the locked product decisions unless the user explicitly asks.
+## CI auth (GitHub Packages)
 
-## Source Lookup Order
+`pom.xml` pulls `com.cake.clockify:addon-sdk` from
+`maven.pkg.github.com/clockify/addon-java-sdk`. GitHub Packages Maven
+registries require auth. The workflow reads a `GH_PACKAGES_TOKEN` repo
+secret (classic PAT with `read:packages`) via `actions/setup-java`
+server-auth. `server-id: github` in `.github/workflows/test.yml` matches
+`<repository><id>github</id>` in `pom.xml`.
 
-If any implementation detail is uncertain, inspect these folders in this exact order before asking the user:
+If CI fails with `401 Unauthorized` resolving the addon-sdk, the secret is
+missing or expired — rotate the PAT and update the repo secret.
+
+## Local boot
+
+- `.env` (gitignored) carries secrets.
+- Postgres: `brew services start postgresql@16`, then
+  `psql -U 15x -d stop_at_estimate`.
+- Tunnel URL rotates per restart:
+  `cloudflared tunnel --url http://localhost:8080`, then update
+  `ADDON_BASE_URL` before booting.
+
+## Package layout
+
+| Package       | Purpose                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `api/`        | Clockify HTTP clients + their response-mapped exceptions.       |
+| `config/`     | `@Configuration` beans: security, RestClients, properties.      |
+| `controller/` | REST, webhook, and sidebar entry points.                        |
+| `migration/`  | One-shot data migrations (e.g. token re-encryption).            |
+| `model/`      | Domain records; JPA entities under `model/entity/`.             |
+| `repository/` | Spring Data JPA repositories.                                   |
+| `scheduler/`  | Timed reconciliation + cutoff-job firing.                       |
+| `service/`    | Domain logic. Our own auth errors (`InvalidAddonTokenException`) live here. |
+| `store/`      | Repository-backed persistence facades.                          |
+| `util/`       | JSON helpers, small pure utilities.                             |
+| `web/`        | `GlobalExceptionHandler` and web adapters.                      |
+
+## Source lookup order
+
+If an implementation detail is uncertain, inspect in this order before
+asking:
 
 1. `../../ClockifyAddonAIPack/01-canonical-docs/`
 2. `../../ClockifyAddonAIPack/03-ai-pack/starter-java-sdk/`
@@ -37,46 +90,16 @@ If any implementation detail is uncertain, inspect these folders in this exact o
 4. `../../ClockifyAddonAIPack/05-reference-addons/clockify-http-actions/`
 5. `../../ClockifyAddonAIPack/02-openapi-and-events/`
 
-Rules:
+Don't guess if the repo answers it. Ask only when product intent is still
+ambiguous after checking.
 
-- Do not guess if the repo already contains the answer.
-- Do not ask the user for manifest, auth, lifecycle, webhook, or starter details that those folders already define.
-- Ask the user only when product intent is still ambiguous after checking the source folders.
+## Domain references (read when relevant)
 
-## Non-Negotiable Rules
-
-- Keep manifest key `stop-at-estimate`.
-- Use schema `1.3`.
-- Manifest declares `requireProPlan()` — do not drop without explicit product approval; SPEC §1, PRD, README, and the manifest test all assume PRO.
-- Use only the fixed sidebar, lifecycle routes, scopes, settings, and webhook set from `SPEC.md`.
-- Use `X-Addon-Token` for addon APIs.
-- Never hardcode Clockify API URLs.
-- Keep installation tokens backend-only.
-- Verify Clockify JWTs with RS256 and validate claims (require numeric `exp`; validate `nbf`/`iat` when present).
-- Normalize `backendUrl` through `ClockifyUrlNormalizer`: HTTPS only, host must match `*.clockify.me`.
-- Strip `auth_token` from iframe URLs after extraction.
-- Use PostgreSQL, not file-backed storage.
-- Do not add an observe-only mode, widget, or extra UI surfaces.
-
-## Implementation Order
-
-1. Scaffold from the Java starter.
-2. Replace storage with PostgreSQL + Flyway.
-3. Implement auth and lifecycle.
-4. Implement Clockify clients.
-5. Implement guard logic and cutoff scheduling.
-6. Implement lock/unlock restoration.
-7. Implement webhook handlers.
-8. Implement protected APIs and sidebar.
-9. Implement tests.
-10. Verify using `0_TO_WORKING.md`.
-
-## Completion Standard
-
-Do not claim completion until:
-
-- tests pass
-- the app runs locally
-- `GET /manifest` works for private install
-- the sidebar loads and uses protected APIs
-- hard-stop and unlock flows are verified
+- `README.md` — elevator pitch.
+- `PRD.md` — product contract.
+- `SPEC.md` — feature spec, routes, scopes, lifecycle, webhook set.
+- `TECH_STACK.md`, `ARCHITECTURE.md`, `IMPLEMENTATION.md` — design.
+- `0_TO_WORKING.md` — local boot verification.
+- `TODO.md`, `FOLLOWUP_TODO.md`, `SONNETTODO.md` — audit backlog. Partially
+  stale; re-verify each item against the current tree before acting.
+- `docs/NEXT_SESSION.md` — kickoff prompt for the next maintenance pass.
