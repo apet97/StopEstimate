@@ -11,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -407,25 +406,7 @@ public class ClockifyBackendApiClient {
     }
 
     private static RuntimeException classify(RestClientResponseException e) {
-        HttpStatusCode status = e.getStatusCode();
-        int code = status.value();
-        if (code == 429) {
-            // One bounded Retry-After-honoring retry has already been attempted above. A second
-            // 429 means the burst is sustained; defer to the scheduler's next tick.
-            return new ClockifyApiException("Rate limited by Clockify (429) after one retry; deferring to scheduler", e);
-        }
-        if (code == 401) {
-            return new ClockifyRequestAuthException(
-                    "Clockify backend rejected the installation token", e);
-        }
-        if (code == 403) {
-            // RES-08: distinguish a backend permission failure (addon lost scope / admin
-            // revoked access) from a webhook-token mismatch so the exception handler can
-            // emit a different error code.
-            return new ClockifyBackendForbiddenException(
-                    "Clockify backend forbade the request", e);
-        }
-        return new ClockifyApiException("Clockify backend call failed with status " + status, e);
+        return ClockifyHttpClassifier.classify(e, "Clockify backend");
     }
 
     private List<JsonObject> parseArray(String body) {

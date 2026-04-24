@@ -58,7 +58,8 @@ class ClockifyBackendApiClientTest {
 
         assertThatThrownBy(() -> f.client.getWorkspace(fakeInstallation()))
                 .isInstanceOf(ClockifyRequestAuthException.class)
-                .hasMessageContaining("installation token");
+                .hasMessageContaining("Clockify backend")
+                .hasMessageContaining("rejected");
         f.server.verify();
     }
 
@@ -87,7 +88,7 @@ class ClockifyBackendApiClientTest {
 
         assertThatThrownBy(() -> f.client.getWorkspace(fakeInstallation()))
                 .isInstanceOf(ClockifyApiException.class)
-                .hasMessageContaining("Rate limited")
+                .hasMessageContaining("rate limited")
                 .hasMessageContaining("429");
         f.server.verify();
     }

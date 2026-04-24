@@ -60,7 +60,8 @@ class ClockifyReportsApiClientTest {
 
         assertThatThrownBy(() -> f.client.generateSummaryReport(fakeInstallation(), new JsonObject()))
                 .isInstanceOf(ClockifyRequestAuthException.class)
-                .hasMessageContaining("Reports token rejected");
+                .hasMessageContaining("Clockify reports")
+                .hasMessageContaining("rejected");
         f.server.verify();
     }
 
@@ -89,7 +90,8 @@ class ClockifyReportsApiClientTest {
 
         assertThatThrownBy(() -> f.client.generateSummaryReport(fakeInstallation(), new JsonObject()))
                 .isInstanceOf(ClockifyApiException.class)
-                .hasMessageContaining("Reports rate limited")
+                .hasMessageContaining("Clockify reports")
+                .hasMessageContaining("rate limited")
                 .hasMessageContaining("429");
         f.server.verify();
     }

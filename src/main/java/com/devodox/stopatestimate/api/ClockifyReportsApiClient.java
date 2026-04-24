@@ -105,21 +105,7 @@ public class ClockifyReportsApiClient {
 
     private static RuntimeException classifyReports(RestClientResponseException e, String path) {
         // Never log the response body — reports contain workspace financial and time data.
-        int code = e.getStatusCode().value();
-        log.warn("Clockify reports call failed path={} status={}", path, code);
-        // RES-02: differentiate status codes. One bounded Retry-After retry was already attempted
-        // for 429 above; a second 429 defers to the scheduler. 401/403 are non-retryable.
-        if (code == 429) {
-            return new ClockifyApiException("Reports rate limited (429) after one retry; deferring to scheduler", e);
-        }
-        if (code == 401) {
-            return new ClockifyRequestAuthException(
-                    "Reports token rejected", e);
-        }
-        if (code == 403) {
-            return new ClockifyBackendForbiddenException(
-                    "Reports forbade the request", e);
-        }
-        return new ClockifyApiException("Reports call failed with " + code, e);
+        log.warn("Clockify reports call failed path={} status={}", path, e.getStatusCode().value());
+        return ClockifyHttpClassifier.classify(e, "Clockify reports");
     }
 }
