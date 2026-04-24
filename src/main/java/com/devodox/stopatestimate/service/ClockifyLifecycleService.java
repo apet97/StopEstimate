@@ -10,6 +10,7 @@ import com.devodox.stopatestimate.store.CutoffJobStore;
 import com.devodox.stopatestimate.store.InstallationStore;
 import com.devodox.stopatestimate.store.LockSnapshotStore;
 import com.devodox.stopatestimate.util.ClockifyJson;
+import com.devodox.stopatestimate.util.ClockifyPayloadDrift;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -27,10 +28,26 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class ClockifyLifecycleService {
     private static final Logger log = LoggerFactory.getLogger(ClockifyLifecycleService.class);
+
+    // A5: allowlists of top-level fields the handlers actually read. Any drift (a new field from
+    // Clockify) is logged once at WARN via ClockifyPayloadDrift. We never reject — Clockify may
+    // legitimately extend an envelope during a rollout — but the log line means a silent spec
+    // change doesn't stay invisible.
+    private static final Set<String> INSTALLED_KNOWN_FIELDS = Set.of(
+            "workspaceId", "addonId", "addonUserId", "asUser",
+            "authToken", "apiUrl", "reportsUrl",
+            "webhooks", "settings");
+    private static final Set<String> DELETED_KNOWN_FIELDS = Set.of(
+            "workspaceId", "addonId");
+    private static final Set<String> STATUS_CHANGED_KNOWN_FIELDS = Set.of(
+            "workspaceId", "addonId", "status");
+    private static final Set<String> SETTINGS_UPDATED_KNOWN_FIELDS = Set.of(
+            "workspaceId", "addonId", "settings");
 
     private final TokenVerificationService tokenVerificationService;
     private final InstallationStore installationStore;
@@ -67,6 +84,7 @@ public class ClockifyLifecycleService {
     @Transactional
     public void handleInstalled(String rawBody, String lifecycleToken) {
         JsonObject payload = parsePayload(rawBody);
+        ClockifyPayloadDrift.warnUnknownTopLevelFields(log, "lifecycle.installed", payload, INSTALLED_KNOWN_FIELDS);
         Map<String, Object> claims = verifyLifecycleToken(lifecycleToken);
 
         String workspaceId = ClockifyJson.requiredString(payload, "workspaceId");
@@ -121,6 +139,7 @@ public class ClockifyLifecycleService {
     @Transactional
     public void handleDeleted(String rawBody, String lifecycleToken) {
         JsonObject payload = parsePayload(rawBody);
+        ClockifyPayloadDrift.warnUnknownTopLevelFields(log, "lifecycle.deleted", payload, DELETED_KNOWN_FIELDS);
         Map<String, Object> claims = verifyLifecycleToken(lifecycleToken);
         String workspaceId = ClockifyJson.requiredString(payload, "workspaceId");
         assertMatches(workspaceId, claimString(claims, ClockifySignatureParser.CLAIM_WORKSPACE_ID), "workspace");
@@ -133,6 +152,7 @@ public class ClockifyLifecycleService {
     @Transactional
     public void handleStatusChanged(String rawBody, String lifecycleToken) {
         JsonObject payload = parsePayload(rawBody);
+        ClockifyPayloadDrift.warnUnknownTopLevelFields(log, "lifecycle.statusChanged", payload, STATUS_CHANGED_KNOWN_FIELDS);
         Map<String, Object> claims = verifyLifecycleToken(lifecycleToken);
         String workspaceId = ClockifyJson.requiredString(payload, "workspaceId");
         assertMatches(workspaceId, claimString(claims, ClockifySignatureParser.CLAIM_WORKSPACE_ID), "workspace");
@@ -161,6 +181,7 @@ public class ClockifyLifecycleService {
     @Transactional
     public void handleSettingsUpdated(String rawBody, String lifecycleToken) {
         JsonObject payload = parsePayload(rawBody);
+        ClockifyPayloadDrift.warnUnknownTopLevelFields(log, "lifecycle.settingsUpdated", payload, SETTINGS_UPDATED_KNOWN_FIELDS);
         Map<String, Object> claims = verifyLifecycleToken(lifecycleToken);
         String workspaceId = ClockifyJson.requiredString(payload, "workspaceId");
         assertMatches(workspaceId, claimString(claims, ClockifySignatureParser.CLAIM_WORKSPACE_ID), "workspace");
