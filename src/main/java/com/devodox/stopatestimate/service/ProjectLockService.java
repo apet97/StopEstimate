@@ -1,7 +1,9 @@
 package com.devodox.stopatestimate.service;
 
+import com.devodox.stopatestimate.api.ClockifyAccessForbiddenException;
 import com.devodox.stopatestimate.api.ClockifyApiException;
 import com.devodox.stopatestimate.api.ClockifyBackendApiClient;
+import com.devodox.stopatestimate.api.ClockifyRequestAuthException;
 import com.devodox.stopatestimate.model.GuardReason;
 import com.devodox.stopatestimate.model.InstallationRecord;
 import com.devodox.stopatestimate.model.ProjectLockSnapshot;
@@ -84,6 +86,11 @@ public class ProjectLockService {
             backendApiClient.updateProjectVisibility(installation, projectState.projectId(), false);
             try {
                 backendApiClient.updateProjectMemberships(installation, projectState.projectId(), allowedMembers, List.of());
+            } catch (ClockifyRequestAuthException | ClockifyAccessForbiddenException e) {
+                // After the A3 reparent, ClockifyApiException catches auth/forbidden too. The
+                // direct-members-only fallback below would re-fail for the same reason and mask
+                // the real cause — re-throw so GlobalExceptionHandler maps it to 401/403.
+                throw e;
             } catch (ClockifyApiException e) {
                 log.warn("Project membership group clear failed for {}. Falling back to direct members only.", projectState.projectId(), e);
                 backendApiClient.updateProjectMemberships(installation, projectState.projectId(), allowedMembers, null);
@@ -150,6 +157,11 @@ public class ProjectLockService {
                     projectId,
                     snapshot.originalMembers(),
                     snapshot.originalUserGroupIds());
+        } catch (ClockifyRequestAuthException | ClockifyAccessForbiddenException e) {
+            // After the A3 reparent, ClockifyApiException catches auth/forbidden too. The
+            // direct-members-only fallback below would re-fail for the same reason and mask
+            // the real cause — re-throw so GlobalExceptionHandler maps it to 401/403.
+            throw e;
         } catch (ClockifyApiException e) {
             log.warn("Project user group restore failed for {}. Restoring direct users only.", projectId, e);
             backendApiClient.updateProjectMemberships(

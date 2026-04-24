@@ -1,6 +1,8 @@
 package com.devodox.stopatestimate.controller;
 
+import com.devodox.stopatestimate.api.ClockifyAccessForbiddenException;
 import com.devodox.stopatestimate.api.ClockifyApiException;
+import com.devodox.stopatestimate.api.ClockifyRequestAuthException;
 import com.devodox.stopatestimate.service.ClockifyWebhookService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -121,6 +123,13 @@ public class WebhookController {
             String eventType) {
         try {
             webhookService.handleWebhook(expectedEventType, routePath, body, signature, eventType);
+        } catch (ClockifyRequestAuthException | ClockifyAccessForbiddenException e) {
+            // After the A3 reparent, ClockifyApiException catches auth/forbidden too. Re-throw
+            // those so GlobalExceptionHandler maps a bad signature / forged request to 401/403
+            // — silently 200-acking an unauthenticated webhook would mask both real bugs and
+            // attacks. Only the generic-ClockifyApiException case below is absorbed for the
+            // scheduler to reconcile.
+            throw e;
         } catch (ClockifyApiException e) {
             // Clockify retries forever on 5xx; scheduler reconcile will catch up, so 200-ack.
             log.warn("Clockify API call failed during {} handling — scheduler will reconcile", expectedEventType, e);
