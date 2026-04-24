@@ -18,6 +18,7 @@ import com.devodox.stopatestimate.model.entity.GuardEventEntity;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.service.ClockifyLifecycleService;
 import com.devodox.stopatestimate.service.EstimateGuardService;
+import com.devodox.stopatestimate.service.GuardEventRecorder;
 import com.devodox.stopatestimate.service.ProjectLockService;
 import com.devodox.stopatestimate.service.ProjectUsageService;
 import com.devodox.stopatestimate.store.CutoffJobStore;
@@ -62,9 +63,13 @@ class EstimateGuardServiceTest {
         backendApiClient = Mockito.mock(ClockifyBackendApiClient.class);
         cutoffJobStore = Mockito.mock(CutoffJobStore.class);
         guardEventRepository = Mockito.mock(GuardEventRepository.class);
+        // Real GuardEventRecorder wrapping the mock repo so existing
+        // verify(guardEventRepository, ...).save(...) assertions still work — the recorder is a
+        // pass-through that does the row construction inline.
+        GuardEventRecorder guardEventRecorder = new GuardEventRecorder(guardEventRepository);
         service = new EstimateGuardService(
                 lifecycleService, projectUsageService, projectLockService,
-                cutoffJobStore, guardEventRepository, backendApiClient, fixedClock);
+                cutoffJobStore, guardEventRecorder, backendApiClient, fixedClock);
     }
 
     @Test

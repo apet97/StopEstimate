@@ -12,8 +12,6 @@ import com.devodox.stopatestimate.model.ProjectState;
 import com.devodox.stopatestimate.model.ProjectUsage;
 import com.devodox.stopatestimate.model.RateInfo;
 import com.devodox.stopatestimate.model.RunningTimeEntry;
-import com.devodox.stopatestimate.model.entity.GuardEventEntity;
-import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.store.CutoffJobStore;
 import com.devodox.stopatestimate.util.ClockifyJson;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -26,9 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,7 +31,6 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +53,7 @@ public class EstimateGuardService {
     private final ProjectUsageService projectUsageService;
     private final ProjectLockService projectLockService;
     private final CutoffJobStore cutoffJobStore;
-    private final GuardEventRepository guardEventRepository;
+    private final GuardEventRecorder guardEventRecorder;
     private final ClockifyBackendApiClient backendApiClient;
     private final Clock clock;
 
@@ -80,14 +74,14 @@ public class EstimateGuardService {
             ProjectUsageService projectUsageService,
             ProjectLockService projectLockService,
             CutoffJobStore cutoffJobStore,
-            GuardEventRepository guardEventRepository,
+            GuardEventRecorder guardEventRecorder,
             ClockifyBackendApiClient backendApiClient,
             Clock clock) {
         this.lifecycleService = lifecycleService;
         this.projectUsageService = projectUsageService;
         this.projectLockService = projectLockService;
         this.cutoffJobStore = cutoffJobStore;
-        this.guardEventRepository = guardEventRepository;
+        this.guardEventRecorder = guardEventRecorder;
         this.backendApiClient = backendApiClient;
         this.clock = clock;
     }
@@ -364,28 +358,7 @@ public class EstimateGuardService {
             GuardReason reason,
             String source,
             JsonObject payload) {
-        GuardEventEntity row = new GuardEventEntity();
-        row.setWorkspaceId(workspaceId);
-        row.setProjectId(projectId);
-        row.setEventType(type.name());
-        row.setGuardReason(reason == null ? null : reason.name());
-        row.setSource(source);
-        row.setPayloadFingerprint(fingerprint(payload));
-        guardEventRepository.save(row);
-    }
-
-    private static String fingerprint(JsonObject payload) {
-        if (payload == null) {
-            return "scheduler";
-        }
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(payload.toString().getBytes(StandardCharsets.UTF_8));
-            // 16 hex chars = 64 bits of collision resistance; plenty for audit-trail dedup.
-            return HexFormat.of().formatHex(hash).substring(0, 16);
-        } catch (NoSuchAlgorithmException e) {
-            return "scheduler";
-        }
+        guardEventRecorder.record(workspaceId, projectId, type, reason, source, payload);
     }
 
     public void cancelWorkspaceJobs(String workspaceId) {
