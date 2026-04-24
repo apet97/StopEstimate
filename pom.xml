@@ -173,13 +173,9 @@
             <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
-        <!-- H2 retained until Phase 7 swaps every *IT to Testcontainers Postgres. The existing
-             SpringBootTest suite still runs against H2 in Postgres-compat mode. -->
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!-- D3: H2 dropped. Every Spring-context-loading test now extends AbstractPostgresIT so
+             it runs against real Postgres via Testcontainers. The parallel db/migration-test tree
+             went away with this change; only db/migration is maintained. -->
     </dependencies>
 
     <build>

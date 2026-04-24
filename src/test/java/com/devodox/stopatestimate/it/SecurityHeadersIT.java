@@ -1,13 +1,11 @@
-package com.devodox.stopatestimate.config;
+package com.devodox.stopatestimate.it;
 
 import com.devodox.stopatestimate.api.ClockifyBackendApiClient;
 import com.devodox.stopatestimate.api.ClockifyReportsApiClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -17,10 +15,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+/**
+ * D3: migrated from H2 to Testcontainers Postgres via {@link AbstractPostgresIT}. The header
+ * assertions are DB-agnostic, but the test loads a full Spring context — so it inherits the IT
+ * profile + Testcontainers wiring rather than maintaining a separate H2 path.
+ */
 @AutoConfigureMockMvc
-@ActiveProfiles("test")
-class SecurityHeadersTest {
+class SecurityHeadersIT extends AbstractPostgresIT {
 
     @Autowired
     private MockMvc mockMvc;

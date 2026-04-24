@@ -1,5 +1,6 @@
-package com.devodox.stopatestimate;
+package com.devodox.stopatestimate.it;
 
+import com.devodox.stopatestimate.TestJwtFactory;
 import com.devodox.stopatestimate.api.ClockifyBackendApiClient;
 import com.devodox.stopatestimate.api.ClockifyReportsApiClient;
 import com.devodox.stopatestimate.model.AddonStatus;
@@ -7,7 +8,6 @@ import com.devodox.stopatestimate.model.InstallationRecord;
 import com.devodox.stopatestimate.model.entity.WebhookRegistrationEntity;
 import com.devodox.stopatestimate.repository.WebhookRegistrationRepository;
 import com.devodox.stopatestimate.store.CutoffJobStore;
-import com.devodox.stopatestimate.store.InstallationStore;
 import com.devodox.stopatestimate.store.LockSnapshotStore;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -16,9 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Map;
@@ -38,16 +36,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+/**
+ * D3: migrated from H2 (@SpringBootTest @ActiveProfiles("test")) to Testcontainers Postgres
+ * via {@link AbstractPostgresIT}. The HTTP/persistence round-trips here exercised features that
+ * H2's Postgres-compat mode handled imperfectly (FK cascades, BIGSERIAL semantics, TIMESTAMPTZ).
+ * Now runs against the real {@code db/migration} tree so the test path matches production.
+ */
 @AutoConfigureMockMvc
-@ActiveProfiles("test")
-class StopAtEstimateApplicationTests {
+class StopAtEstimateApplicationIT extends AbstractPostgresIT {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @Autowired
-    private InstallationStore installationStore;
 
     @Autowired
     private CutoffJobStore cutoffJobStore;
@@ -66,6 +65,8 @@ class StopAtEstimateApplicationTests {
 
     @BeforeEach
     void resetStoresAndMocks() {
+        // AbstractPostgresIT.cleanDatabase() already TRUNCATEs the underlying tables; the explicit
+        // store deletes here are redundant but cheap and document the intent for readers.
         lockSnapshotStore.deleteAllSnapshots();
         cutoffJobStore.deleteAllJobs();
         installationStore.deleteAllRecords();
@@ -390,30 +391,9 @@ class StopAtEstimateApplicationTests {
         when(reportsApiClient.generateExpenseReport(any(InstallationRecord.class), any(JsonObject.class))).thenReturn(expenseReport);
     }
 
-    private static String installedPayload(String workspaceId, String installationToken, String webhookToken) {
-        return """
-                {
-                  "addonId": "addon-123",
-                  "authToken": "%s",
-                  "workspaceId": "%s",
-                  "asUser": "user-123",
-                  "apiUrl": "https://api.clockify.me/api",
-                  "addonUserId": "addon-user-123",
-                  "settings": [
-                    {"id": "enabled", "value": true},
-                    {"id": "defaultResetCadence", "value": "MONTHLY"}
-                  ],
-                  "webhooks": [
-                    {
-                      "path": "https://example.test/webhook/new-time-entry",
-                      "webhookType": "ADDON",
-                      "authToken": "%s"
-                    }
-                  ]
-                }
-                """.formatted(installationToken, workspaceId, webhookToken);
-    }
-
+    // installedPayload(...) is inherited from AbstractPostgresIT — same shape (the webhook host
+    // is host-agnostic after ClockifyJson.normalizeWebhookPath strips it). Only the multi-route
+    // variant below is unique to this test, used by installPersistsWebhookEventTypes.
     private static String installedPayloadAllWebhooks(String workspaceId, String installationToken, String webhookToken) {
         return """
                 {
@@ -428,11 +408,11 @@ class StopAtEstimateApplicationTests {
                     {"id": "defaultResetCadence", "value": "MONTHLY"}
                   ],
                   "webhooks": [
-                    {"path": "https://example.test/webhook/new-timer-started",  "webhookType": "ADDON", "authToken": "%s"},
-                    {"path": "https://example.test/webhook/timer-stopped",      "webhookType": "ADDON", "authToken": "%s"},
-                    {"path": "https://example.test/webhook/new-time-entry",     "webhookType": "ADDON", "authToken": "%s"},
-                    {"path": "https://example.test/webhook/time-entry-updated", "webhookType": "ADDON", "authToken": "%s"},
-                    {"path": "https://example.test/webhook/time-entry-deleted", "webhookType": "ADDON", "authToken": "%s"}
+                    {"path": "https://it.example.com/webhook/new-timer-started",  "webhookType": "ADDON", "authToken": "%s"},
+                    {"path": "https://it.example.com/webhook/timer-stopped",      "webhookType": "ADDON", "authToken": "%s"},
+                    {"path": "https://it.example.com/webhook/new-time-entry",     "webhookType": "ADDON", "authToken": "%s"},
+                    {"path": "https://it.example.com/webhook/time-entry-updated", "webhookType": "ADDON", "authToken": "%s"},
+                    {"path": "https://it.example.com/webhook/time-entry-deleted", "webhookType": "ADDON", "authToken": "%s"}
                   ]
                 }
                 """.formatted(installationToken, workspaceId,
