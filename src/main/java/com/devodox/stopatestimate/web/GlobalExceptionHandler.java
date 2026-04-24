@@ -5,6 +5,7 @@ import com.devodox.stopatestimate.api.ClockifyApiException;
 import com.devodox.stopatestimate.api.ClockifyBackendForbiddenException;
 import com.devodox.stopatestimate.api.ClockifyRequestAuthException;
 import com.devodox.stopatestimate.service.InvalidAddonTokenException;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import com.google.gson.JsonSyntaxException;
 import org.slf4j.Logger;
@@ -67,6 +68,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({JsonSyntaxException.class, HttpMessageNotReadableException.class})
     public ResponseEntity<Map<String, Object>> handleBadJson(Exception e) {
         return respond(HttpStatus.BAD_REQUEST, "invalid_payload", "Malformed JSON payload");
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleConstraintViolation(ConstraintViolationException e) {
+        // Bean Validation on @RequestParam / @PathVariable (e.g. @Min, @Max) throws this. Keep the
+        // message generic — violation paths can leak parameter names — and route to a consistent
+        // 400 envelope so callers see the same shape as every other bad-request case.
+        log.debug("ConstraintViolationException: {}", e.getMessage());
+        return respond(HttpStatus.BAD_REQUEST, "invalid_request", "Invalid request parameters");
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -5,8 +5,11 @@ import com.devodox.stopatestimate.model.VerifiedAddonContext;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.repository.GuardEventRepository.GuardEventView;
 import com.devodox.stopatestimate.service.EstimateGuardService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,6 +21,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/guard")
+@Validated
 public class GuardApiController {
 
     private final EstimateGuardService estimateGuardService;
@@ -52,13 +56,12 @@ public class GuardApiController {
     @GetMapping("/events")
     public ResponseEntity<Map<String, Object>> events(
             VerifiedAddonContext context,
-            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) int limit,
             @RequestParam(required = false) String projectId) {
-        int capped = Math.max(1, Math.min(limit, 200));
         List<GuardEventView> events = guardEventRepository.findRecent(
                 context.workspaceId(),
                 projectId,
-                PageRequest.of(0, capped));
+                PageRequest.of(0, limit));
         return ResponseEntity.ok(Map.of(
                 "workspaceId", context.workspaceId(),
                 "events", events
