@@ -20,7 +20,7 @@ jobs:
       # a repo-scoped PAT (GH_PACKAGES_TOKEN, read:packages) set as a secret.
       # server-id below MUST match <repository><id>github</id> in pom.xml.
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
