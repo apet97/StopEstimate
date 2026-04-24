@@ -1,0 +1,74 @@
+name: security-scan
+
+on:
+  schedule:
+    # Mondays 06:00 UTC — runs before the Dependabot cadence so the scan result is fresh when
+    # dependency bumps land.
+    - cron: "0 6 * * 1"
+  pull_request:
+    branches: [main]
+    paths:
+      - "pom.xml"
+      - "dependency-check-suppressions.xml"
+      - ".github/workflows/security-scan.yml"
+  workflow_dispatch:
+
+# Single run at a time per ref. The dependency-check NVD feed update is slow; serialising keeps
+# one scan from stepping on another's NVD cache.
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dependency-check:
+    name: OWASP Dependency-Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          # Same GitHub Packages auth as the main test workflow — pom.xml pulls addon-sdk from
+          # maven.pkg.github.com/clockify/addon-java-sdk and the token is required even for
+          # dependency resolution during the scan.
+          server-id: github
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+
+      - name: Cache NVD feed
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          # Bump the key when the NVD schema changes or we want to force a rebuild.
+          key: nvd-feed-${{ runner.os }}-v1
+          restore-keys: |
+            nvd-feed-${{ runner.os }}-
+
+      - name: Run Dependency-Check
+        env:
+          # Secrets are safe to reference in env — they're controlled by the repo owner, not by
+          # PR-supplied input. No user-supplied GitHub event fields (issue titles, commit
+          # messages, PR bodies) are interpolated into run: here.
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_PASSWORD: ${{ secrets.GH_PACKAGES_TOKEN }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -n "$NVD_API_KEY" ]; then
+            ./mvnw -B -ntp -P security-scan verify -DnvdApiKey="$NVD_API_KEY"
+          else
+            ./mvnw -B -ntp -P security-scan verify
+          fi
+
+      - name: Upload Dependency-Check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: |
+            target/dependency-check-report.html
+            target/dependency-check-report.xml
+          retention-days: 14
