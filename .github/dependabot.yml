@@ -1,0 +1,47 @@
+version: 2
+updates:
+  # Maven deps (Spring Boot BOM, Gson, ShedLock, Caffeine, httpclient5, testcontainers, jjwt,
+  # addon-sdk). Patch/minor grouped into a single weekly PR; majors open individually so a Spring
+  # Boot 3.x -> 4.x jump gets proper review.
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Belgrade
+    open-pull-requests-limit: 5
+    groups:
+      maven-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions versions pinned by major (e.g. actions/setup-java@v4). Bundle minor/patch
+  # bumps weekly; hold majors for manual review since action API changes are common.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Belgrade
+    open-pull-requests-limit: 3
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  # Dockerfile base-image pins (eclipse-temurin:21-jdk-alpine, 21-jre-alpine). Weekly is fine;
+  # Alpine + Temurin security rebuilds land often enough that manual cadence would drift.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Belgrade
+    open-pull-requests-limit: 2
