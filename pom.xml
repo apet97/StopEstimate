@@ -122,6 +122,13 @@
             <artifactId>httpclient5</artifactId>
         </dependency>
 
+        <!-- Observability — Prometheus scrape endpoint (/actuator/prometheus) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- Caches -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>

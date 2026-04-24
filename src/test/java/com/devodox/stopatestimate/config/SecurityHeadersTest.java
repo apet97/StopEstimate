@@ -95,14 +95,42 @@ class SecurityHeadersTest {
     }
 
     @Test
-    void actuatorInfoIsNotPubliclyReachable() throws Exception {
-        MvcResult result = mockMvc.perform(get("/actuator/info")).andReturn();
-        assertThat(result.getResponse().getStatus()).isIn(401, 403, 404);
+    void actuatorLivenessAndReadinessProbesArePubliclyReachable() throws Exception {
+        // B2: K8s-style probes. 200 is returned once the application context is up.
+        mockMvc.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void actuatorPrometheusIsPubliclyReachable() throws Exception {
+        // B1: Prometheus scrape endpoint must be reachable without auth so operators can wire
+        // a scrape job without building a sidecar. Any sensitivity comes from the metric
+        // values themselves; the endpoint surface is intentional.
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void actuatorInfoIsPubliclyReachable() throws Exception {
+        // B1: /actuator/info is a low-risk read of build metadata (or empty when nothing is
+        // configured). Kept public alongside prometheus for ops-friendliness.
+        mockMvc.perform(get("/actuator/info"))
+                .andExpect(status().isOk());
     }
 
     @Test
     void actuatorEnvIsNotPubliclyReachable() throws Exception {
+        // Non-exposed endpoints must stay blocked by the /actuator/** denyAll rule even if a
+        // future yml change accidentally exposes them.
         MvcResult result = mockMvc.perform(get("/actuator/env")).andReturn();
+        assertThat(result.getResponse().getStatus()).isIn(401, 403, 404);
+    }
+
+    @Test
+    void actuatorBeansIsNotPubliclyReachable() throws Exception {
+        MvcResult result = mockMvc.perform(get("/actuator/beans")).andReturn();
         assertThat(result.getResponse().getStatus()).isIn(401, 403, 404);
     }
 }

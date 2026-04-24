@@ -41,17 +41,31 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        # B1/B2: operators scrape /actuator/prometheus. SecurityConfig allows this endpoint
+        # explicitly; /actuator/health/liveness|readiness fall under the /actuator/health/**
+        # permit rule for K8s/Nomad probes.
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: when-authorized
+      # Liveness + readiness probes (/actuator/health/liveness|readiness). Spring wires them
+      # automatically when this flag is on and injects k8s-friendly default indicators
+      # (readiness waits for ApplicationContext ready, liveness flips on shutdown).
+      probes:
+        enabled: true
+    prometheus:
+      access: read_only
+  prometheus:
+    metrics:
+      export:
+        enabled: true
   metrics:
     web:
       client:
         # Every Clockify call embeds workspace/project/user IDs in the URI path and Micrometer
         # warns "Reached the maximum number of URI tags" once it hits the default cap (100).
-        # Raising the cap silences the warning; a follow-up should switch to URI templates so the
-        # tags collapse to low cardinality and this cap becomes irrelevant.
+        # Raising the cap silences the warning; B3 follow-up will switch the RestClient calls
+        # to URI templates so the tags collapse to low cardinality and this cap goes away.
         max-uri-tags: 500
 
 addon:

@@ -181,10 +181,19 @@ public class SecurityConfig {
                                 "/static/**",
                                 "/css/**",
                                 "/js/**",
-                                "/actuator/health").permitAll()
-                        // Any non-health actuator endpoint is denied. Spring Security uses first-match,
-                        // so /actuator/health above still passes. This keeps accidental future exposures
-                        // (env, beans, mappings, heapdump, etc.) locked even if the yml exposure list grows.
+                                "/actuator/health",
+                                // B2: expose k8s-style liveness + readiness probes
+                                // (/actuator/health/liveness, /actuator/health/readiness).
+                                "/actuator/health/**",
+                                // B1: Prometheus scrape. Alongside /actuator/health this is the
+                                // minimal surface operators need; anything else on /actuator/**
+                                // stays locked by the denyAll below.
+                                "/actuator/prometheus",
+                                "/actuator/info").permitAll()
+                        // Any other actuator endpoint is denied. Spring Security uses first-match,
+                        // so the explicit permits above still pass. This keeps accidental future
+                        // exposures (env, beans, mappings, heapdump, etc.) locked even if the yml
+                        // exposure list grows.
                         .requestMatchers("/actuator/**").denyAll()
                         .requestMatchers(HttpMethod.POST, "/lifecycle/**", "/webhook/**").permitAll()
                         // /api/** tokens are validated inside the handler via
