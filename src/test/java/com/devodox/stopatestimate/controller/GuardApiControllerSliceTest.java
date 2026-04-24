@@ -10,7 +10,6 @@ import com.devodox.stopatestimate.web.AddonWebMvcConfig;
 import com.devodox.stopatestimate.web.GlobalExceptionHandler;
 import com.devodox.stopatestimate.web.VerifiedAddonContextArgumentResolver;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -22,7 +21,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
@@ -107,19 +105,39 @@ class GuardApiControllerSliceTest {
     }
 
     @Test
-    void eventsEndpointClampsLimitTo200() throws Exception {
+    void eventsEndpointRejectsLimitAboveMaxWith400() throws Exception {
+        when(verifiedAddonContextService.verifyRequired(anyString())).thenReturn(ctx());
+
+        mockMvc.perform(get("/api/guard/events")
+                        .header("X-Addon-Token", "jwt")
+                        .param("limit", "500"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_request"));
+    }
+
+    @Test
+    void eventsEndpointRejectsLimitBelowMinWith400() throws Exception {
+        when(verifiedAddonContextService.verifyRequired(anyString())).thenReturn(ctx());
+
+        mockMvc.perform(get("/api/guard/events")
+                        .header("X-Addon-Token", "jwt")
+                        .param("limit", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_request"));
+    }
+
+    @Test
+    void eventsEndpointAcceptsLimitAtMaxBoundary() throws Exception {
         when(verifiedAddonContextService.verifyRequired(anyString())).thenReturn(ctx());
         when(guardEventRepository.findRecent(anyString(), any(), any(PageRequest.class)))
                 .thenReturn(List.of());
 
         mockMvc.perform(get("/api/guard/events")
                         .header("X-Addon-Token", "jwt")
-                        .param("limit", "500"))
+                        .param("limit", "200"))
                 .andExpect(status().isOk());
 
-        ArgumentCaptor<PageRequest> pageCaptor = ArgumentCaptor.forClass(PageRequest.class);
-        verify(guardEventRepository).findRecent(anyString(), any(), pageCaptor.capture());
-        assertThat(pageCaptor.getValue().getPageSize()).isEqualTo(200);
+        verify(guardEventRepository).findRecent("ws-1", null, PageRequest.of(0, 200));
     }
 
     @Test
