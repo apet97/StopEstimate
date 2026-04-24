@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk-alpine AS build
+FROM eclipse-temurin:25-jdk-alpine AS build
 WORKDIR /build
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
@@ -6,7 +6,7 @@ RUN ./mvnw -B dependency:go-offline || true
 COPY src/ src/
 RUN ./mvnw -B package -DskipTests
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 RUN apk add --no-cache curl \
     && addgroup -S app \
     && adduser -S app -G app
