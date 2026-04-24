@@ -9,8 +9,10 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.encrypt.Encryptors;
 import org.springframework.security.crypto.encrypt.TextEncryptor;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
@@ -132,6 +134,18 @@ public class SecurityConfig {
 
     private String normalize(String value) {
         return value == null ? null : value.trim().toLowerCase();
+    }
+
+    /**
+     * Empty user store. The addon never authenticates via username/password; all requests are
+     * gated by {@code VerifiedAddonContextService} using Clockify-issued JWTs. Defining this bean
+     * suppresses Spring Boot's {@code UserDetailsServiceAutoConfiguration}, which would otherwise
+     * generate a random password at startup and log "Using generated security password" — noise
+     * that implies a login surface that does not exist.
+     */
+    @Bean
+    public UserDetailsService userDetailsService() {
+        return new InMemoryUserDetailsManager();
     }
 
     @Bean
