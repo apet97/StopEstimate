@@ -23,61 +23,68 @@ public class ClockifyReportsApiClient {
     public ClockifyReportsApiClient(@Qualifier("clockifyReportsRestClient") RestClient restClient) {
         // Single RestClient per bean. RES-03: 45s read timeout tuned for the summary/detailed
         // reports endpoints which return single large payloads on busy workspaces.
+        //
+        // B3: call sites pass a path TEMPLATE ("/v1/workspaces/{ws}/reports/summary") plus
+        // path-vars so Micrometer records the template rather than the resolved URL.
         this.restClient = restClient;
     }
 
     public JsonObject generateSummaryReport(InstallationRecord installation, JsonObject filter) {
         return postJson(
                 installation.reportsUrl(),
-                "/v1/workspaces/" + installation.workspaceId() + "/reports/summary",
+                "/v1/workspaces/{ws}/reports/summary",
                 installation.installationToken(),
-                filter);
+                filter,
+                installation.workspaceId());
     }
 
     public JsonObject generateExpenseReport(InstallationRecord installation, JsonObject filter) {
         return postJson(
                 installation.reportsUrl(),
-                "/v1/workspaces/" + installation.workspaceId() + "/reports/expenses/detailed",
+                "/v1/workspaces/{ws}/reports/expenses/detailed",
                 installation.installationToken(),
-                filter);
+                filter,
+                installation.workspaceId());
     }
 
-    private JsonObject postJson(String reportsUrl, String path, String addonToken, JsonObject body) {
-        String url = ClockifyApiUrls.join(ClockifyApiUrls.trimTrailingSlash(reportsUrl), path);
+    private JsonObject postJson(
+            String reportsUrl, String pathTemplate, String addonToken, JsonObject body, Object... pathVars) {
+        String fullTemplate = ClockifyApiUrls.join(ClockifyApiUrls.trimTrailingSlash(reportsUrl), pathTemplate);
         String requestBodyStr = gson.toJson(body == null ? new JsonObject() : body);
         if (log.isTraceEnabled()) {
-            log.trace("reports POST path={} bytes={}", path, requestBodyStr.length());
+            log.trace("reports POST path={} bytes={}", pathTemplate, requestBodyStr.length());
         }
         try {
-            return doPostAndParse(url, addonToken, requestBodyStr, path);
+            return doPostAndParse(fullTemplate, pathVars, addonToken, requestBodyStr, pathTemplate);
         } catch (RestClientResponseException e) {
             if (e.getStatusCode().value() == 429) {
                 long sleepMs = ClockifyBackendApiClient.retryAfterMillis(e);
-                log.info("Clockify reports returned 429 for {}; retrying once after {}ms", path, sleepMs);
+                log.info("Clockify reports returned 429 for {}; retrying once after {}ms", pathTemplate, sleepMs);
                 try {
                     Thread.sleep(sleepMs);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    throw classifyReports(e, path);
+                    throw classifyReports(e, pathTemplate);
                 }
                 try {
-                    return doPostAndParse(url, addonToken, requestBodyStr, path);
+                    return doPostAndParse(fullTemplate, pathVars, addonToken, requestBodyStr, pathTemplate);
                 } catch (RestClientResponseException retryEx) {
-                    throw classifyReports(retryEx, path);
+                    throw classifyReports(retryEx, pathTemplate);
                 } catch (RuntimeException retryEx) {
                     throw new ClockifyApiException("Clockify reports call failed", retryEx);
                 }
             }
-            throw classifyReports(e, path);
+            throw classifyReports(e, pathTemplate);
         } catch (RuntimeException e) {
             throw new ClockifyApiException("Clockify reports call failed", e);
         }
     }
 
-    private JsonObject doPostAndParse(String url, String addonToken, String requestBodyStr, String path) {
+    private JsonObject doPostAndParse(
+            String fullTemplate, Object[] pathVars, String addonToken, String requestBodyStr, String pathTemplate) {
         String responseBody = restClient
                 .post()
-                .uri(url)
+                .uri(fullTemplate, pathVars)
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("X-Addon-Token", addonToken)
                 .body(requestBodyStr)
@@ -85,7 +92,7 @@ public class ClockifyReportsApiClient {
                 .body(String.class);
 
         if (log.isTraceEnabled()) {
-            log.trace("reports response path={} bytes={}", path, responseBody == null ? 0 : responseBody.length());
+            log.trace("reports response path={} bytes={}", pathTemplate, responseBody == null ? 0 : responseBody.length());
         }
 
         if (responseBody == null || responseBody.isBlank()) {

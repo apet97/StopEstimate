@@ -16,7 +16,6 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.Duration;
 import java.time.ZonedDateTime;
@@ -35,6 +34,9 @@ public class ClockifyBackendApiClient {
     /** Default sleep when the server returns 429 without a Retry-After header. */
     private static final long RETRY_AFTER_DEFAULT_MS = 1_000L;
 
+    /** Empty path-var array, reused so every var-less call doesn't allocate. */
+    private static final Object[] NO_VARS = new Object[0];
+
     private final RestClient restClient;
     private final Gson gson = new Gson();
 
@@ -42,21 +44,29 @@ public class ClockifyBackendApiClient {
         // Single RestClient per bean: the underlying HttpClient pools connections across calls.
         // RES-03: the 30s read timeout is tuned for pagination-heavy endpoints (listProjects,
         // filterUsers, listInProgressTimeEntries) on large workspaces.
+        //
+        // B3: all call sites pass a path TEMPLATE (e.g. "/v1/workspaces/{ws}/projects/{p}")
+        // plus path-vars to the exchange helpers. Spring's UriTemplateHandler resolves them
+        // before issuing the request, and Micrometer's RestClient instrumentation records the
+        // template (not the resolved URL) as the `uri` tag — so http.client.requests cardinality
+        // is bounded by the number of endpoints, not workspaces × projects × users.
         this.restClient = restClient;
     }
 
     public JsonObject getProject(InstallationRecord installation, String projectId) {
         return getObject(
                 installation.backendUrl(),
-                "/v1/workspaces/" + installation.workspaceId() + "/projects/" + projectId,
-                installation.installationToken());
+                "/v1/workspaces/{ws}/projects/{p}",
+                installation.installationToken(),
+                installation.workspaceId(), projectId);
     }
 
     public JsonObject getWorkspace(InstallationRecord installation) {
         return getObject(
                 installation.backendUrl(),
-                "/v1/workspaces/" + installation.workspaceId(),
-                installation.installationToken());
+                "/v1/workspaces/{ws}",
+                installation.installationToken(),
+                installation.workspaceId());
     }
 
     /**
@@ -75,9 +85,10 @@ public class ClockifyBackendApiClient {
     public List<JsonObject> listInProgressTimeEntries(InstallationRecord installation) {
         return listPagedArray(
                 installation.backendUrl(),
-                "/v1/workspaces/" + installation.workspaceId() + "/time-entries/status/in-progress",
+                "/v1/workspaces/{ws}/time-entries/status/in-progress",
                 installation.installationToken(),
-                1000);
+                1000,
+                installation.workspaceId());
     }
 
     public void stopRunningTimer(InstallationRecord installation, String userId, String endIsoTimestamp) {
@@ -85,9 +96,10 @@ public class ClockifyBackendApiClient {
         body.addProperty("end", endIsoTimestamp);
         patchJson(
                 installation.backendUrl(),
-                "/v1/workspaces/" + installation.workspaceId() + "/user/" + userId + "/time-entries",
+                "/v1/workspaces/{ws}/user/{userId}/time-entries",
                 installation.installationToken(),
-                body);
+                body,
+                installation.workspaceId(), userId);
     }
 
     public void updateProjectVisibility(InstallationRecord installation, String projectId, boolean isPublic) {
@@ -100,9 +112,10 @@ public class ClockifyBackendApiClient {
         body.addProperty("isPublic", isPublic);
         putJson(
                 installation.backendUrl(),
-                "/v1/workspaces/" + installation.workspaceId() + "/projects/" + projectId,
+                "/v1/workspaces/{ws}/projects/{p}",
                 installation.installationToken(),
-                body);
+                body,
+                installation.workspaceId(), projectId);
     }
 
     private static JsonObject preservableProjectFields(JsonObject source) {
@@ -183,9 +196,10 @@ public class ClockifyBackendApiClient {
 
         patchJson(
                 installation.backendUrl(),
-                "/v1/workspaces/" + installation.workspaceId() + "/projects/" + projectId + "/memberships",
+                "/v1/workspaces/{ws}/projects/{p}/memberships",
                 installation.installationToken(),
-                body);
+                body,
+                installation.workspaceId(), projectId);
     }
 
     private static JsonObject rateToJson(com.devodox.stopatestimate.model.RateInfo rate) {
@@ -226,9 +240,10 @@ public class ClockifyBackendApiClient {
             String response = exchangeJson(
                     "POST",
                     installation.backendUrl(),
-                    "/v1/workspaces/" + installation.workspaceId() + "/users/info",
+                    "/v1/workspaces/{ws}/users/info",
                     installation.installationToken(),
-                    gson.toJson(body));
+                    gson.toJson(body),
+                    installation.workspaceId());
             List<JsonObject> pageItems = parseArray(response);
             results.addAll(pageItems);
             if (pageItems.size() < pageSize) {
@@ -244,36 +259,41 @@ public class ClockifyBackendApiClient {
     public List<JsonObject> listProjects(InstallationRecord installation) {
         return listPagedArray(
                 installation.backendUrl(),
-                "/v1/workspaces/" + installation.workspaceId() + "/projects",
+                "/v1/workspaces/{ws}/projects",
                 installation.installationToken(),
-                100);
+                100,
+                installation.workspaceId());
     }
 
-    private List<JsonObject> listPagedArray(String baseUrl, String path, String addonToken, int pageSize) {
+    private List<JsonObject> listPagedArray(
+            String baseUrl, String pathTemplate, String addonToken, int pageSize, Object... pathVars) {
         List<JsonObject> results = new ArrayList<>();
         int page = 1;
 
+        // Template keeps the path + query literals constant so Micrometer sees a single URI tag
+        // regardless of page number. {page} and {pageSize} vars land at the end of pathVars.
+        String paginatedTemplate = pathTemplate + "?page={__page}&page-size={__pageSize}";
+
         while (true) {
-            String url = UriComponentsBuilder
-                    .fromUriString(ClockifyApiUrls.join(baseUrl, path))
-                    .queryParam("page", page)
-                    .queryParam("page-size", pageSize)
-                    .build()
-                    .toUriString();
-            List<JsonObject> pageItems = parseArray(exchange("GET", url, addonToken, null));
+            Object[] varsWithPaging = new Object[pathVars.length + 2];
+            System.arraycopy(pathVars, 0, varsWithPaging, 0, pathVars.length);
+            varsWithPaging[pathVars.length] = page;
+            varsWithPaging[pathVars.length + 1] = pageSize;
+            List<JsonObject> pageItems = parseArray(
+                    exchange("GET", baseUrl, paginatedTemplate, varsWithPaging, addonToken, null));
             results.addAll(pageItems);
             if (pageItems.size() < pageSize) {
                 return results;
             }
             page++;
             if (page > MAX_PAGES) {
-                throw new ClockifyApiException("Clockify " + path + " pagination exceeded " + MAX_PAGES + " pages");
+                throw new ClockifyApiException("Clockify " + pathTemplate + " pagination exceeded " + MAX_PAGES + " pages");
             }
         }
     }
 
-    private JsonObject getObject(String baseUrl, String path, String addonToken) {
-        String response = exchange("GET", ClockifyApiUrls.join(baseUrl, path), addonToken, null);
+    private JsonObject getObject(String baseUrl, String pathTemplate, String addonToken, Object... pathVars) {
+        String response = exchange("GET", baseUrl, pathTemplate, pathVars, addonToken, null);
         if (response == null || response.isBlank()) {
             return new JsonObject();
         }
@@ -281,25 +301,29 @@ public class ClockifyBackendApiClient {
         return element.isJsonObject() ? element.getAsJsonObject() : new JsonObject();
     }
 
-    private void putJson(String baseUrl, String path, String addonToken, JsonObject body) {
-        exchangeJson("PUT", baseUrl, path, addonToken, gson.toJson(body));
+    private void putJson(String baseUrl, String pathTemplate, String addonToken, JsonObject body, Object... pathVars) {
+        exchangeJson("PUT", baseUrl, pathTemplate, addonToken, gson.toJson(body), pathVars);
     }
 
-    private void patchJson(String baseUrl, String path, String addonToken, JsonObject body) {
-        exchangeJson("PATCH", baseUrl, path, addonToken, gson.toJson(body));
+    private void patchJson(String baseUrl, String pathTemplate, String addonToken, JsonObject body, Object... pathVars) {
+        exchangeJson("PATCH", baseUrl, pathTemplate, addonToken, gson.toJson(body), pathVars);
     }
 
-    private String exchangeJson(String method, String baseUrl, String path, String addonToken, String body) {
-        return exchange(method, ClockifyApiUrls.join(baseUrl, path), addonToken, body);
+    private String exchangeJson(
+            String method, String baseUrl, String pathTemplate, String addonToken, String body, Object... pathVars) {
+        return exchange(method, baseUrl, pathTemplate, pathVars, addonToken, body);
     }
 
-    private String exchange(String method, String url, String addonToken, String body) {
+    private String exchange(
+            String method, String baseUrl, String pathTemplate, Object[] pathVars, String addonToken, String body) {
+        String fullTemplate = ClockifyApiUrls.join(baseUrl, pathTemplate);
+        Object[] vars = pathVars == null ? NO_VARS : pathVars;
         try {
-            return exchangeOnce(method, url, addonToken, body);
+            return exchangeOnce(method, fullTemplate, vars, addonToken, body);
         } catch (RestClientResponseException e) {
             if (e.getStatusCode().value() == 429) {
                 long sleepMs = retryAfterMillis(e);
-                log.info("Clockify backend returned 429 for {} {}; retrying once after {}ms", method, url, sleepMs);
+                log.info("Clockify backend returned 429 for {} {}; retrying once after {}ms", method, pathTemplate, sleepMs);
                 try {
                     Thread.sleep(sleepMs);
                 } catch (InterruptedException ie) {
@@ -307,7 +331,7 @@ public class ClockifyBackendApiClient {
                     throw classify(e);
                 }
                 try {
-                    return exchangeOnce(method, url, addonToken, body);
+                    return exchangeOnce(method, fullTemplate, vars, addonToken, body);
                 } catch (RestClientResponseException retryEx) {
                     throw classify(retryEx);
                 } catch (RuntimeException retryEx) {
@@ -320,29 +344,29 @@ public class ClockifyBackendApiClient {
         }
     }
 
-    private String exchangeOnce(String method, String url, String addonToken, String body) {
+    private String exchangeOnce(String method, String fullTemplate, Object[] pathVars, String addonToken, String body) {
         return switch (method) {
             case "GET" -> restClient.get()
-                    .uri(url)
+                    .uri(fullTemplate, pathVars)
                     .header("X-Addon-Token", addonToken)
                     .retrieve()
                     .body(String.class);
             case "PUT" -> restClient.put()
-                    .uri(url)
+                    .uri(fullTemplate, pathVars)
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("X-Addon-Token", addonToken)
                     .body(body == null ? "{}" : body)
                     .retrieve()
                     .body(String.class);
             case "PATCH" -> restClient.patch()
-                    .uri(url)
+                    .uri(fullTemplate, pathVars)
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("X-Addon-Token", addonToken)
                     .body(body == null ? "{}" : body)
                     .retrieve()
                     .body(String.class);
             case "POST" -> restClient.post()
-                    .uri(url)
+                    .uri(fullTemplate, pathVars)
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("X-Addon-Token", addonToken)
                     .body(body == null ? "{}" : body)

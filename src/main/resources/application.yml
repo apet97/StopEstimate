@@ -59,14 +59,10 @@ management:
     metrics:
       export:
         enabled: true
-  metrics:
-    web:
-      client:
-        # Every Clockify call embeds workspace/project/user IDs in the URI path and Micrometer
-        # warns "Reached the maximum number of URI tags" once it hits the default cap (100).
-        # Raising the cap silences the warning; B3 follow-up will switch the RestClient calls
-        # to URI templates so the tags collapse to low cardinality and this cap goes away.
-        max-uri-tags: 500
+  # B3: RestClient calls now use URI templates ({ws}, {p}, {userId}, ...) so Micrometer records
+  # one tag per endpoint template, not per workspace/project/user. The previous max-uri-tags: 500
+  # bandaid is gone — the default cap of 100 is more than enough for the ~10 distinct Clockify
+  # endpoints this addon hits.
 
 addon:
   key: ${ADDON_KEY:stop-at-estimate}
