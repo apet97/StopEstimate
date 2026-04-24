@@ -20,8 +20,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Check NVD API key availability
+    runs-on: ubuntu-latest
+    outputs:
+      have_key: ${{ steps.check.outputs.have_key }}
+    steps:
+      - name: Check for NVD_API_KEY
+        id: check
+        env:
+          # secrets.* are repo-owner-controlled; no PR-supplied input here.
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -n "$NVD_API_KEY" ]; then
+            echo "have_key=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::NVD_API_KEY is set; full Dependency-Check scan will run."
+          else
+            echo "have_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::NVD_API_KEY repo secret is not set. Skipping Dependency-Check to avoid public-feed rate limits. Provision an API key at https://nvd.nist.gov/developers/request-an-api-key and add it as the NVD_API_KEY secret to enable the scan."
+          fi
+
   dependency-check:
     name: OWASP Dependency-Check
+    needs: preflight
+    if: needs.preflight.outputs.have_key == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,18 +72,17 @@ jobs:
 
       - name: Run Dependency-Check
         env:
-          # Secrets are safe to reference in env — they're controlled by the repo owner, not by
-          # PR-supplied input. No user-supplied GitHub event fields (issue titles, commit
-          # messages, PR bodies) are interpolated into run: here.
+          # secrets.* and github.actor (authenticated principal) only — no PR-supplied user
+          # input is interpolated into run: here.
           MAVEN_USERNAME: ${{ github.actor }}
           MAVEN_PASSWORD: ${{ secrets.GH_PACKAGES_TOKEN }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        # nvdValidForHours=168 means we re-check the NVD feed weekly; combined with actions/cache
+        # this avoids re-downloading the multi-megabyte feed on every PR.
         run: |
-          if [ -n "$NVD_API_KEY" ]; then
-            ./mvnw -B -ntp -P security-scan verify -DnvdApiKey="$NVD_API_KEY"
-          else
-            ./mvnw -B -ntp -P security-scan verify
-          fi
+          ./mvnw -B -ntp -P security-scan verify \
+            -DnvdApiKey="$NVD_API_KEY" \
+            -DnvdValidForHours=168
 
       - name: Upload Dependency-Check report
         if: always()
