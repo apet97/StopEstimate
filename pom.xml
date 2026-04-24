@@ -295,7 +295,9 @@
                     <plugin>
                         <groupId>org.owasp</groupId>
                         <artifactId>dependency-check-maven</artifactId>
-                        <version>11.1.0</version>
+                        <!-- 12.x required to parse current NVD feed: 11.x chokes on the CVSS v4
+                             "SAFETY" ModifiedCiaType enum value with NvdApiException. -->
+                        <version>12.2.1</version>
                         <configuration>
                             <failBuildOnCVSS>7</failBuildOnCVSS>
                             <suppressionFiles>
