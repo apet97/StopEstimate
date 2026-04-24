@@ -16,21 +16,29 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.Map;
 
 @SpringBootTest
 @ActiveProfiles("it")
-@Testcontainers
 public abstract class AbstractPostgresIT {
 
-    @Container
-    protected static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16-alpine")
-                    .withReuse(false);
+    /**
+     * Singleton container — started on first classload and never explicitly stopped. Ryuk
+     * (Testcontainers' reaper) tears it down at JVM exit. The earlier {@code @Testcontainers}
+     * + {@code @Container} pattern stopped the container after each IT class finished, but
+     * Spring's TestContext cache reuses the same {@code ApplicationContext} (and its Hikari
+     * pool) across IT classes with the same configuration — so the next class would attempt to
+     * connect to a port that no longer accepts connections.
+     */
+    protected static final PostgreSQLContainer<?> POSTGRES = startContainer();
+
+    private static PostgreSQLContainer<?> startContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:16-alpine");
+        container.start();
+        return container;
+    }
 
     @DynamicPropertySource
     static void registerContainerProperties(DynamicPropertyRegistry registry) {
