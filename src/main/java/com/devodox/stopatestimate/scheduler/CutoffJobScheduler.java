@@ -47,7 +47,14 @@ public class CutoffJobScheduler {
         this.guardEventsRetention = guardEventsRetention;
     }
 
-    @Scheduled(fixedDelayString = "${clockify.cutoff.interval-ms:60000}")
+    // Random 0-30s initialDelay phase-shifts ticks across instances behind a single Postgres.
+    // ShedLock already prevents double-runs, but without jitter every instance would still hit
+    // Clockify's API at the same wall-clock moment after a synchronous deploy/restart, creating
+    // a thundering-herd burst. fixedDelay measures from the end of the previous run, so once
+    // instances are out of phase they stay out of phase — initial-delay jitter alone is enough.
+    @Scheduled(
+            fixedDelayString = "${clockify.cutoff.interval-ms:60000}",
+            initialDelayString = "#{T(java.util.concurrent.ThreadLocalRandom).current().nextInt(30001)}")
     @SchedulerLock(name = "CutoffJobScheduler.tick", lockAtMostFor = "PT5M", lockAtLeastFor = "PT15S")
     public void tick() {
         // Split failure domains: a thrown processDueJobs must not skip reconcileAll, and
