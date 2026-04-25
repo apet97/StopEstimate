@@ -17,6 +17,7 @@ import com.devodox.stopatestimate.model.ProjectGuardSummary;
 import com.devodox.stopatestimate.model.entity.GuardEventEntity;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.service.ClockifyLifecycleService;
+import com.devodox.stopatestimate.service.CutoffPlanner;
 import com.devodox.stopatestimate.service.EstimateGuardService;
 import com.devodox.stopatestimate.service.GuardEventRecorder;
 import com.devodox.stopatestimate.service.ProjectLockService;
@@ -67,9 +68,12 @@ class EstimateGuardServiceTest {
         // verify(guardEventRepository, ...).save(...) assertions still work — the recorder is a
         // pass-through that does the row construction inline.
         GuardEventRecorder guardEventRecorder = new GuardEventRecorder(guardEventRepository);
+        // Real CutoffPlanner: pure function of inputs, no collaborators. Using the real one
+        // keeps the assess→cutoffPlan→immediateCutoff math under test instead of stubbing it.
+        CutoffPlanner cutoffPlanner = new CutoffPlanner();
         service = new EstimateGuardService(
                 lifecycleService, projectUsageService, projectLockService,
-                cutoffJobStore, guardEventRecorder, backendApiClient, fixedClock);
+                cutoffJobStore, guardEventRecorder, backendApiClient, cutoffPlanner, fixedClock);
     }
 
     @Test
