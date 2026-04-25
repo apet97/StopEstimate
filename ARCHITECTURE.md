@@ -60,7 +60,20 @@ Responsibilities:
 
 ### Guard Engine
 
-Responsibilities:
+Split across two classes:
+
+- `CutoffPlanner` — pure decision math. Inputs: `ProjectState`,
+  `ProjectUsage`, running entries, `now`, source, optional payload.
+  Output: an `Assessment` (breach reason, planned cutoff timestamp,
+  `lockNow` flag, planned reason). No clock, no DB, no Clockify calls.
+- `EstimateGuardService` — side-effect orchestration. Reads project
+  state, calls the planner, and turns the `Assessment` into the right
+  combination of stop-timer / lock / unlock / schedule-cutoff /
+  no-op. Owns the BUG-11 partial-failure invariants in
+  `processDueJob` (wrap each side effect, reinsert on stop-fail, log
+  on lock-fail).
+
+Combined responsibilities:
 
 - read project state
 - determine active caps
