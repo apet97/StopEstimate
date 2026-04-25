@@ -11,7 +11,7 @@ Server-side enforcement: once a project hits its cap, contributors can't keep tr
 | | |
 |---|---|
 | **Status** | Private install validated on a Pro workspace. Hard-stop, restore, and webhook paths verified against live data. |
-| **Tests** | 181 / 181 passing (`./mvnw -B test`); CI runs unit + Testcontainers jobs on ubuntu-latest. |
+| **Tests** | 202 / 202 passing (`./mvnw -B test`); CI runs unit + Testcontainers jobs on ubuntu-latest. |
 | **Manifest** | schema `1.3`, PRO, 1 admin sidebar, 4 lifecycle, 5 webhooks, 8 scopes, 2 settings |
 | **Hard-stop mechanism** | Webhook (instant) + scheduler tick (≤60s backstop). See [How enforcement works](#how-enforcement-works). |
 | **Audit trail** | Every lock / unlock / cutoff / timer-stop persisted in `guard_events`, exposed via `GET /api/guard/events` |
@@ -126,7 +126,7 @@ openssl rand -hex 32   # APP_ENCRYPTION_SALT_HEX (>= 64 hex chars / 256 bits)
 
 export $(grep -v '^#' .env | xargs)
 
-./mvnw -B test             # 181/181 green
+./mvnw -B test             # 202/202 green
 ./mvnw -B spring-boot:run  # starts on :8080
 ```
 
