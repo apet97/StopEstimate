@@ -17,6 +17,7 @@ import com.devodox.stopatestimate.model.RunningTimeEntry;
 import com.devodox.stopatestimate.model.entity.GuardEventEntity;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.service.ClockifyLifecycleService;
+import com.devodox.stopatestimate.service.CutoffPlanner;
 import com.devodox.stopatestimate.service.EstimateGuardService;
 import com.devodox.stopatestimate.service.GuardEventRecorder;
 import com.devodox.stopatestimate.service.ProjectLockService;
@@ -72,9 +73,13 @@ class EstimateGuardServiceProcessDueJobsTest {
         // Real GuardEventRecorder wrapping the mock repo so existing
         // verify(guardEventRepository, ...).save(...) assertions still work.
         GuardEventRecorder guardEventRecorder = new GuardEventRecorder(guardEventRepository);
+        // Real CutoffPlanner: pure function of inputs, no collaborators. The BUG-11
+        // asymmetric-failure tests below depend on the real assess() path producing the same
+        // GuardReason as production.
+        CutoffPlanner cutoffPlanner = new CutoffPlanner();
         service = new EstimateGuardService(
                 lifecycleService, projectUsageService, projectLockService,
-                cutoffJobStore, guardEventRecorder, backendApiClient, fixedClock);
+                cutoffJobStore, guardEventRecorder, backendApiClient, cutoffPlanner, fixedClock);
     }
 
     @Test
