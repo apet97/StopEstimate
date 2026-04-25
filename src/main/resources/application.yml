@@ -20,6 +20,24 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+  web:
+    resources:
+      # E3: content-hash strategy fingerprints /css/sidebar.css → /css/sidebar-<sha>.css
+      # at request time. sidebar.html uses Thymeleaf @{/...} URL expressions, which
+      # Spring rewrites through ResourceUrlEncoder when the chain is enabled. Hashed
+      # URLs are deploy-stable per-content, so we can ship a long max-age without
+      # risking a stale asset after a deploy — the hash flips and the browser
+      # requests a fresh URL.
+      chain:
+        cache: true
+        strategy:
+          content:
+            enabled: true
+            paths: /**
+      cache:
+        cachecontrol:
+          max-age: 365d
+          public: true
 
 server:
   port: ${SERVER_PORT:8080}

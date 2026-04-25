@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title th:text="${addonName}">Stop @ Estimate</title>
-    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" th:href="@{/css/sidebar.css}" href="/css/sidebar.css">
 </head>
 <body>
 <div class="stack">
@@ -80,6 +80,6 @@
         </details>
     </section>
 </div>
-<script src="/js/sidebar.js"></script>
+<script th:src="@{/js/sidebar.js}" src="/js/sidebar.js"></script>
 </body>
 </html>
