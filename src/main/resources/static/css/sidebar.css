@@ -151,5 +151,28 @@ body.theme-dark .banner {
     color: #efc085;
     border-color: rgba(210, 151, 78, 0.36);
 }
+.load-more {
+    margin-top: 10px;
+    padding: 6px 14px;
+    font-size: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(18, 33, 47, 0.14);
+    background: rgba(18, 33, 47, 0.04);
+    color: inherit;
+    cursor: pointer;
+}
+.load-more:hover {
+    background: rgba(18, 33, 47, 0.08);
+}
+.load-more[hidden] {
+    display: none;
+}
+body.theme-dark .load-more {
+    background: rgba(238, 246, 251, 0.08);
+    border-color: rgba(238, 246, 251, 0.16);
+}
+body.theme-dark .load-more:hover {
+    background: rgba(238, 246, 251, 0.14);
+}
 .mt-12 { margin-top: 12px; }
 .mt-16 { margin-top: 16px; }

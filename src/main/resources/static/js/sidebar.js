@@ -11,6 +11,16 @@
     var REFRESH_BACKOFF_MS = [1000, 2000, 5000];
     var MAX_REFRESH_ATTEMPTS = 3;
 
+    // FE-12: client-side pagination. The /api/guard/events endpoint caps limit at 200 (A6),
+    // and a workspace's project list is unbounded; rendering hundreds of rows at once
+    // hurt the iframe's first paint. Fetch a generous pool, render in slices.
+    var PAGE_SIZE = 20;
+    var EVENTS_FETCH_LIMIT = 100;
+    var projectsAll = [];
+    var projectsShown = 0;
+    var eventsAll = [];
+    var eventsShown = 0;
+
     var token = null;
     var refreshTimer = null;
     var refreshTimeoutId = null;
@@ -40,24 +50,31 @@
 
     function bindActions() {
         var button = document.getElementById('reconcile-button');
-        if (!button) {
-            return;
-        }
-        button.addEventListener('click', function () {
-            if (button.disabled) {
-                return;
-            }
-            button.disabled = true;
-            setStatus('Running manual reconcile...');
-            postJson('/api/guard/reconcile').then(function (payload) {
-                renderProjects(payload.projects || []);
-                setStatus('Manual reconcile completed.');
-            }).catch(function (error) {
-                setStatus(error.message);
-            }).then(function () {
-                button.disabled = false;
+        if (button) {
+            button.addEventListener('click', function () {
+                if (button.disabled) {
+                    return;
+                }
+                button.disabled = true;
+                setStatus('Running manual reconcile...');
+                postJson('/api/guard/reconcile').then(function (payload) {
+                    renderProjects(payload.projects || []);
+                    setStatus('Manual reconcile completed.');
+                }).catch(function (error) {
+                    setStatus(error.message);
+                }).then(function () {
+                    button.disabled = false;
+                });
             });
-        });
+        }
+        var moreProjects = document.getElementById('projects-load-more');
+        if (moreProjects) {
+            moreProjects.addEventListener('click', loadMoreProjects);
+        }
+        var moreEvents = document.getElementById('events-load-more');
+        if (moreEvents) {
+            moreEvents.addEventListener('click', loadMoreEvents);
+        }
     }
 
     function loadAll() {
@@ -68,7 +85,7 @@
         Promise.allSettled([
             fetchJson('/api/context'),
             fetchJson('/api/guard/projects'),
-            fetchJson('/api/guard/events?limit=50')
+            fetchJson('/api/guard/events?limit=' + EVENTS_FETCH_LIMIT)
         ])
             .then(function (results) {
                 if (gen !== loadGeneration) {
@@ -156,9 +173,19 @@
     }
 
     function renderProjects(projects) {
+        // FE-12: cache the full list, reset slice, then render. Re-rendering after a
+        // manual reconcile or token-refresh re-load resets pagination — fresh data
+        // means the user expects to start at "page 1" again.
+        projectsAll = Array.isArray(projects) ? projects : [];
+        projectsShown = Math.min(PAGE_SIZE, projectsAll.length);
+        renderProjectsPage();
+    }
+
+    function renderProjectsPage() {
         var body = document.getElementById('projects-body');
         var table = document.getElementById('projects-table');
         var empty = document.getElementById('projects-empty');
+        var more = document.getElementById('projects-load-more');
         if (!body || !table || !empty) {
             return;
         }
@@ -167,15 +194,19 @@
         while (body.firstChild) {
             body.removeChild(body.firstChild);
         }
-        if (!projects || projects.length === 0) {
+        if (projectsAll.length === 0) {
             table.style.display = 'none';
             empty.style.display = 'block';
+            if (more) {
+                more.hidden = true;
+            }
             return;
         }
         empty.style.display = 'none';
         table.style.display = 'table';
 
-        projects.forEach(function (project) {
+        var slice = projectsAll.slice(0, projectsShown);
+        slice.forEach(function (project) {
             var cells = [
                 project.projectName || project.projectId || '-',
                 project.status || '-',
@@ -194,12 +225,27 @@
             });
             body.appendChild(tr);
         });
+        if (more) {
+            more.hidden = projectsShown >= projectsAll.length;
+        }
+    }
+
+    function loadMoreProjects() {
+        projectsShown = Math.min(projectsShown + PAGE_SIZE, projectsAll.length);
+        renderProjectsPage();
     }
 
     function renderEvents(events) {
+        eventsAll = Array.isArray(events) ? events : [];
+        eventsShown = Math.min(PAGE_SIZE, eventsAll.length);
+        renderEventsPage();
+    }
+
+    function renderEventsPage() {
         var body = document.getElementById('events-body');
         var table = document.getElementById('events-table');
         var empty = document.getElementById('events-empty');
+        var more = document.getElementById('events-load-more');
         if (!body || !table || !empty) {
             return;
         }
@@ -207,15 +253,19 @@
         while (body.firstChild) {
             body.removeChild(body.firstChild);
         }
-        if (!events || events.length === 0) {
+        if (eventsAll.length === 0) {
             table.style.display = 'none';
             empty.style.display = 'block';
+            if (more) {
+                more.hidden = true;
+            }
             return;
         }
         empty.style.display = 'none';
         table.style.display = 'table';
 
-        events.forEach(function (event) {
+        var slice = eventsAll.slice(0, eventsShown);
+        slice.forEach(function (event) {
             var cells = [
                 formatInstant(event.createdAt),
                 event.eventType || '-',
@@ -231,6 +281,14 @@
             });
             body.appendChild(tr);
         });
+        if (more) {
+            more.hidden = eventsShown >= eventsAll.length;
+        }
+    }
+
+    function loadMoreEvents() {
+        eventsShown = Math.min(eventsShown + PAGE_SIZE, eventsAll.length);
+        renderEventsPage();
     }
 
     function formatTime(value) {
