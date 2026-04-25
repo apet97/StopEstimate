@@ -4,6 +4,7 @@ import com.devodox.stopatestimate.model.VerifiedAddonContext;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.service.EstimateGuardService;
 import com.devodox.stopatestimate.service.InvalidAddonTokenException;
+import com.devodox.stopatestimate.service.ProjectSummaryService;
 import com.devodox.stopatestimate.service.VerifiedAddonContextService;
 import com.devodox.stopatestimate.web.AddonTokenVerificationInterceptor;
 import com.devodox.stopatestimate.web.AddonWebMvcConfig;
@@ -47,6 +48,9 @@ class GuardApiControllerSliceTest {
     private EstimateGuardService estimateGuardService;
 
     @MockBean
+    private ProjectSummaryService projectSummaryService;
+
+    @MockBean
     private GuardEventRepository guardEventRepository;
 
     @MockBean
@@ -74,7 +78,7 @@ class GuardApiControllerSliceTest {
     @Test
     void projectsEndpointWithValidTokenYields200() throws Exception {
         when(verifiedAddonContextService.verifyRequired(anyString())).thenReturn(ctx());
-        when(estimateGuardService.listProjectSummaries("ws-1")).thenReturn(List.of());
+        when(projectSummaryService.listProjectSummaries("ws-1")).thenReturn(List.of());
 
         mockMvc.perform(get("/api/guard/projects").header("X-Addon-Token", "jwt"))
                 .andExpect(status().isOk())
@@ -95,7 +99,7 @@ class GuardApiControllerSliceTest {
     @Test
     void reconcileEndpointDrivesReconcileAndReturnsProjects() throws Exception {
         when(verifiedAddonContextService.verifyRequired(anyString())).thenReturn(ctx());
-        when(estimateGuardService.listProjectSummaries("ws-1")).thenReturn(List.of());
+        when(projectSummaryService.listProjectSummaries("ws-1")).thenReturn(List.of());
 
         mockMvc.perform(post("/api/guard/reconcile").header("X-Addon-Token", "jwt"))
                 .andExpect(status().isOk())

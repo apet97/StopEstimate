@@ -5,6 +5,7 @@ import com.devodox.stopatestimate.model.VerifiedAddonContext;
 import com.devodox.stopatestimate.repository.GuardEventRepository;
 import com.devodox.stopatestimate.repository.GuardEventRepository.GuardEventView;
 import com.devodox.stopatestimate.service.EstimateGuardService;
+import com.devodox.stopatestimate.service.ProjectSummaryService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.PageRequest;
@@ -25,17 +26,20 @@ import java.util.Map;
 public class GuardApiController {
 
     private final EstimateGuardService estimateGuardService;
+    private final ProjectSummaryService projectSummaryService;
     private final GuardEventRepository guardEventRepository;
 
     public GuardApiController(EstimateGuardService estimateGuardService,
+                              ProjectSummaryService projectSummaryService,
                               GuardEventRepository guardEventRepository) {
         this.estimateGuardService = estimateGuardService;
+        this.projectSummaryService = projectSummaryService;
         this.guardEventRepository = guardEventRepository;
     }
 
     @GetMapping("/projects")
     public ResponseEntity<Map<String, Object>> projects(VerifiedAddonContext context) {
-        List<ProjectGuardSummary> projects = estimateGuardService.listProjectSummaries(context.workspaceId());
+        List<ProjectGuardSummary> projects = projectSummaryService.listProjectSummaries(context.workspaceId());
         return ResponseEntity.ok(Map.of(
                 "workspaceId", context.workspaceId(),
                 "projects", projects
@@ -45,7 +49,7 @@ public class GuardApiController {
     @PostMapping("/reconcile")
     public ResponseEntity<Map<String, Object>> reconcile(VerifiedAddonContext context) {
         estimateGuardService.reconcileKnownProjects(context.workspaceId(), "api:manual");
-        List<ProjectGuardSummary> projects = estimateGuardService.listProjectSummaries(context.workspaceId());
+        List<ProjectGuardSummary> projects = projectSummaryService.listProjectSummaries(context.workspaceId());
         return ResponseEntity.ok(Map.of(
                 "workspaceId", context.workspaceId(),
                 "reconciled", true,
