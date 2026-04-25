@@ -6,36 +6,25 @@ import com.devodox.stopatestimate.model.GuardReason;
 import com.devodox.stopatestimate.model.InstallationRecord;
 import com.devodox.stopatestimate.model.PendingCutoffJob;
 import com.devodox.stopatestimate.model.ProjectCaps;
-import com.devodox.stopatestimate.model.ProjectGuardSummary;
-import com.devodox.stopatestimate.model.ProjectLockSnapshot;
 import com.devodox.stopatestimate.model.ProjectState;
 import com.devodox.stopatestimate.model.ProjectUsage;
 import com.devodox.stopatestimate.model.RunningTimeEntry;
 import com.devodox.stopatestimate.service.CutoffPlanner.Assessment;
 import com.devodox.stopatestimate.store.CutoffJobStore;
-import com.devodox.stopatestimate.util.ClockifyJson;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 public class EstimateGuardService {
@@ -55,19 +44,8 @@ public class EstimateGuardService {
     private final GuardEventRecorder guardEventRecorder;
     private final ClockifyBackendApiClient backendApiClient;
     private final CutoffPlanner cutoffPlanner;
+    private final KnownProjectIdsResolver knownProjectIdsResolver;
     private final Clock clock;
-
-    /**
-     * Per-workspace cache of the Clockify-side project ID list. Scheduler tick + sidebar calls
-     * hit this more than once per minute; the 30s TTL means we hit Clockify at most once per
-     * tick while still reflecting project changes within ~30s even if no webhook arrives.
-     * DB-derived IDs (lock snapshots, cutoff jobs) are NOT cached — they're merged fresh on
-     * each lookup so a just-fired webhook's new cutoff job is picked up immediately.
-     */
-    private final Cache<String, Set<String>> clockifyProjectIdsCache = Caffeine.newBuilder()
-            .expireAfterWrite(Duration.ofSeconds(30))
-            .maximumSize(1_000)
-            .build();
 
     public EstimateGuardService(
             ClockifyLifecycleService lifecycleService,
@@ -77,6 +55,7 @@ public class EstimateGuardService {
             GuardEventRecorder guardEventRecorder,
             ClockifyBackendApiClient backendApiClient,
             CutoffPlanner cutoffPlanner,
+            KnownProjectIdsResolver knownProjectIdsResolver,
             Clock clock) {
         this.lifecycleService = lifecycleService;
         this.projectUsageService = projectUsageService;
@@ -85,6 +64,7 @@ public class EstimateGuardService {
         this.guardEventRecorder = guardEventRecorder;
         this.backendApiClient = backendApiClient;
         this.cutoffPlanner = cutoffPlanner;
+        this.knownProjectIdsResolver = knownProjectIdsResolver;
         this.clock = clock;
     }
 
@@ -120,7 +100,7 @@ public class EstimateGuardService {
         }
         // Per-project try/catch: one broken project (deleted mid-tick, Clockify 4xx on a
         // specific id) must not starve the remaining projects.
-        for (String projectId : knownProjectIds(installation)) {
+        for (String projectId : knownProjectIdsResolver.resolve(installation)) {
             try {
                 reconcileProject(workspaceId, projectId, source, null,
                         runningEntriesByProject.getOrDefault(projectId, List.of()));
@@ -225,48 +205,6 @@ public class EstimateGuardService {
         recordEvent(workspaceId, projectId, GuardEventType.CUTOFF_SCHEDULED, assessment.plannedReason(), source, payload);
     }
 
-    public List<ProjectGuardSummary> listProjectSummaries(String workspaceId) {
-        InstallationRecord installation = lifecycleService.findInstallation(workspaceId).orElse(null);
-        if (installation == null) {
-            return List.of();
-        }
-
-        // Bulk-load lock snapshots once per workspace; otherwise summarizeProject would
-        // hit the DB once per project on top of the existing per-project Clockify calls.
-        Map<String, ProjectLockSnapshot> snapshotsByProject = projectLockService.findSnapshots(installation.workspaceId())
-                .stream()
-                .collect(Collectors.toMap(ProjectLockSnapshot::projectId, s -> s, (a, b) -> a));
-
-        // PERF: the in-progress-timers endpoint is workspace-scoped. Previously summarizeProject
-        // fetched it once per project and filtered in-memory, so a workspace with N guarded
-        // projects made N identical HTTP requests. Fetch once, group by projectId, pass the
-        // per-project slice into summarizeProject. Freshness invariant from BUG-08 is preserved —
-        // `now` is still captured inside summarizeProject before the assessment math runs.
-        Map<String, List<RunningTimeEntry>> runningEntriesByProject =
-                projectUsageService.loadRunningEntriesByProject(installation);
-
-        List<ProjectGuardSummary> summaries = new ArrayList<>();
-        for (String projectId : knownProjectIds(installation)) {
-            ProjectGuardSummary summary = summarizeProject(
-                    installation,
-                    projectId,
-                    Optional.ofNullable(snapshotsByProject.get(projectId)),
-                    runningEntriesByProject.getOrDefault(projectId, List.of()));
-            if (summary == null) {
-                continue;
-            }
-            boolean keep = summary.activeCaps() || summary.locked() || summary.cutoffAt() != null;
-            if (keep) {
-                summaries.add(summary);
-            }
-        }
-        summaries.sort(Comparator
-                .comparing(ProjectGuardSummary::locked).reversed()
-                .thenComparing(ProjectGuardSummary::status)
-                .thenComparing(ProjectGuardSummary::projectName));
-        return List.copyOf(summaries);
-    }
-
     public void processDueJobs(String source) {
         // BUG-01: no method-wide @Transactional. A previous design rolled back every prior
         // delete in the batch if any job threw. Each job now commits its own state changes
@@ -365,77 +303,6 @@ public class EstimateGuardService {
 
     public void cancelWorkspaceJobs(String workspaceId) {
         cutoffJobStore.deleteByWorkspaceId(workspaceId);
-    }
-
-    private ProjectGuardSummary summarizeProject(
-            InstallationRecord installation,
-            String projectId,
-            Optional<ProjectLockSnapshot> snapshot,
-            List<RunningTimeEntry> runningEntries) {
-        // BUG-08: capture `now` once. Previously clock.instant() was called twice and the
-        // HTTP latency of loadRunningEntries/loadProjectUsage was being counted as elapsed
-        // running time in `assess`, which pushed cutoffAt earlier than it should be.
-        Instant now = clock.instant();
-        ProjectState projectState = projectUsageService.loadProjectState(installation, projectId);
-        ProjectCaps caps = projectState.caps();
-        ProjectUsage usage = projectUsageService.loadProjectUsage(installation, projectState, now);
-        Assessment assessment = cutoffPlanner.assess(projectState, usage, runningEntries, now, "summary", null);
-
-        boolean activeCaps = caps != null && caps.hasActiveCaps();
-        String status;
-        if (!installation.active()) {
-            status = "INACTIVE";
-        } else if (!activeCaps) {
-            status = snapshot.isPresent() ? "LOCKED" : "NO_ACTIVE_CAPS";
-        } else if (snapshot.isPresent()) {
-            status = "LOCKED";
-        } else if (assessment.exceededReason() != null) {
-            status = "OVER_CAP";
-        } else if (assessment.cutoffAt() != null) {
-            status = "CUTOFF_PENDING";
-        } else {
-            status = "OK";
-        }
-
-        long timeLimitMs = activeCaps ? caps.timeLimitMs() : 0L;
-        boolean includeExpenses = activeCaps && caps.includeExpenses();
-        BigDecimal budgetLimit = activeCaps ? caps.budgetLimit() : BigDecimal.ZERO;
-
-        return new ProjectGuardSummary(
-                installation.workspaceId(),
-                projectState.projectId(),
-                projectState.name(),
-                activeCaps,
-                snapshot.isPresent(),
-                status,
-                assessment.reason().name(),
-                usage.trackedTimeMs(),
-                timeLimitMs,
-                usage.budgetUsage(includeExpenses),
-                budgetLimit,
-                runningEntries.size(),
-                assessment.cutoffAt(),
-                usage.resetWindow().nextResetAt(),
-                snapshot.map(ProjectLockSnapshot::lockedAt).orElse(null));
-    }
-
-    private Set<String> knownProjectIds(InstallationRecord installation) {
-        Set<String> projectIds = new LinkedHashSet<>();
-        projectIds.addAll(cachedClockifyProjectIds(installation));
-        // DB-derived IDs are always merged fresh so a just-created lock or cutoff-job is
-        // reconciled on the very next pass instead of waiting for the 30s TTL to expire.
-        projectLockService.findSnapshots(installation.workspaceId()).forEach(snapshot -> projectIds.add(snapshot.projectId()));
-        cutoffJobStore.findByWorkspaceId(installation.workspaceId()).forEach(job -> projectIds.add(job.projectId()));
-        return projectIds;
-    }
-
-    private Set<String> cachedClockifyProjectIds(InstallationRecord installation) {
-        return clockifyProjectIdsCache.get(installation.workspaceId(), ws -> {
-            Set<String> ids = new LinkedHashSet<>();
-            backendApiClient.listProjects(installation)
-                    .forEach(project -> ClockifyJson.string(project, "id").ifPresent(ids::add));
-            return ids;
-        });
     }
 
     private void syncCutoffJobs(

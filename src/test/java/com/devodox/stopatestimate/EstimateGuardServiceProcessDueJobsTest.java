@@ -20,6 +20,7 @@ import com.devodox.stopatestimate.service.ClockifyLifecycleService;
 import com.devodox.stopatestimate.service.CutoffPlanner;
 import com.devodox.stopatestimate.service.EstimateGuardService;
 import com.devodox.stopatestimate.service.GuardEventRecorder;
+import com.devodox.stopatestimate.service.KnownProjectIdsResolver;
 import com.devodox.stopatestimate.service.ProjectLockService;
 import com.devodox.stopatestimate.service.ProjectUsageService;
 import com.devodox.stopatestimate.store.CutoffJobStore;
@@ -77,9 +78,14 @@ class EstimateGuardServiceProcessDueJobsTest {
         // asymmetric-failure tests below depend on the real assess() path producing the same
         // GuardReason as production.
         CutoffPlanner cutoffPlanner = new CutoffPlanner();
+        // Real KnownProjectIdsResolver wrapping the same mocks — preserves the cache + DB-merge
+        // path under test. Not exercised by these tests directly but required by the constructor.
+        KnownProjectIdsResolver knownProjectIdsResolver = new KnownProjectIdsResolver(
+                backendApiClient, projectLockService, cutoffJobStore);
         service = new EstimateGuardService(
                 lifecycleService, projectUsageService, projectLockService,
-                cutoffJobStore, guardEventRecorder, backendApiClient, cutoffPlanner, fixedClock);
+                cutoffJobStore, guardEventRecorder, backendApiClient, cutoffPlanner,
+                knownProjectIdsResolver, fixedClock);
     }
 
     @Test
