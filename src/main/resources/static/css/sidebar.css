@@ -134,5 +134,22 @@ body.theme-dark .empty {
 #events-empty {
     display: none;
 }
+.banner {
+    display: none;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(193, 113, 37, 0.14);
+    color: #8a4f1a;
+    border: 1px solid rgba(193, 113, 37, 0.32);
+    font-size: 13px;
+}
+.banner.is-visible {
+    display: block;
+}
+body.theme-dark .banner {
+    background: rgba(210, 151, 78, 0.18);
+    color: #efc085;
+    border-color: rgba(210, 151, 78, 0.36);
+}
 .mt-12 { margin-top: 12px; }
 .mt-16 { margin-top: 16px; }

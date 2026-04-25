@@ -3,8 +3,20 @@
 
     var DARK_THEMES = ['DARK', 'DARKBLUE'];
 
+    // FE-09: token-refresh watchdog. Without it, a parent that never replies to
+    // refreshAddonToken would leave the sidebar firing /api/* with an expired token
+    // every 25 minutes, surfacing only generic error toasts. Backoff bounds the
+    // retry storm; the banner gives the user something concrete to do.
+    var REFRESH_RESPONSE_TIMEOUT_MS = 5000;
+    var REFRESH_BACKOFF_MS = [1000, 2000, 5000];
+    var MAX_REFRESH_ATTEMPTS = 3;
+
     var token = null;
     var refreshTimer = null;
+    var refreshTimeoutId = null;
+    var refreshBackoffId = null;
+    var refreshAttempt = 0;
+    var refreshPending = false;
     var loadGeneration = 0;
     var parentOrigin = resolveParentOrigin();
 
@@ -109,6 +121,13 @@
     function handleResponse(response) {
         if (response.ok) {
             return response.json();
+        }
+        // FE-09: a 401 means the X-Addon-Token expired between scheduled refreshes
+        // (e.g. server reboot, clock skew). Trigger a refresh now so the next loadAll
+        // can succeed; the original call still rejects so the in-flight Promise.allSettled
+        // records partial-load — the post-refresh loadAll in onParentMessage will reload.
+        if (response.status === 401) {
+            requestTokenRefresh();
         }
         // FE-04: surface the server-provided error message instead of the opaque status line.
         return response.text().then(function (body) {
@@ -295,8 +314,71 @@
             setStatus('Cannot refresh token: parent origin is unknown in this browser.');
             return;
         }
-        setStatus('Requesting refreshed add-on token...');
+        // FE-09: a refresh is in flight; let the watchdog or response settle it before
+        // posting another postMessage. Without this guard a 401 burst would queue
+        // refresh attempts faster than the parent can answer.
+        if (refreshPending) {
+            return;
+        }
+        refreshPending = true;
+        clearRefreshTimers();
+        setStatus(
+            refreshAttempt > 0
+                ? 'Retrying token refresh (attempt ' + (refreshAttempt + 1) + ' of ' + MAX_REFRESH_ATTEMPTS + ')...'
+                : 'Requesting refreshed add-on token...'
+        );
         window.parent.postMessage({ title: 'refreshAddonToken' }, parentOrigin);
+        refreshTimeoutId = setTimeout(onRefreshTimeout, REFRESH_RESPONSE_TIMEOUT_MS);
+    }
+
+    function onRefreshTimeout() {
+        refreshTimeoutId = null;
+        refreshPending = false;
+        refreshAttempt += 1;
+        if (refreshAttempt >= MAX_REFRESH_ATTEMPTS) {
+            showSessionBanner();
+            setStatus('Token refresh failed after ' + MAX_REFRESH_ATTEMPTS + ' attempts.');
+            return;
+        }
+        // Backoff index is one behind attempt count: attempt=1 → wait 1s, attempt=2 → 2s.
+        var delayMs = REFRESH_BACKOFF_MS[Math.min(refreshAttempt - 1, REFRESH_BACKOFF_MS.length - 1)];
+        setStatus('No response from host. Retrying refresh in ' + (delayMs / 1000) + 's...');
+        refreshBackoffId = setTimeout(function () {
+            refreshBackoffId = null;
+            requestTokenRefresh();
+        }, delayMs);
+    }
+
+    function clearRefreshTimers() {
+        if (refreshTimeoutId !== null) {
+            clearTimeout(refreshTimeoutId);
+            refreshTimeoutId = null;
+        }
+        if (refreshBackoffId !== null) {
+            clearTimeout(refreshBackoffId);
+            refreshBackoffId = null;
+        }
+    }
+
+    function resetRefreshState() {
+        clearRefreshTimers();
+        refreshAttempt = 0;
+        refreshPending = false;
+        hideSessionBanner();
+    }
+
+    function showSessionBanner() {
+        var banner = document.getElementById('session-banner');
+        if (banner) {
+            banner.classList.add('is-visible');
+        }
+    }
+
+    function hideSessionBanner() {
+        var banner = document.getElementById('session-banner');
+        if (banner) {
+            banner.classList.remove('is-visible');
+        }
     }
 
     function onParentMessage(event) {
@@ -312,6 +394,7 @@
         }
 
         token = data.body;
+        resetRefreshState();
         var claims = decodeClaims(token);
         applyThemeAndLanguage(claims);
         setText('workspace-id', claims.workspaceId || '-');
@@ -322,6 +405,7 @@
 
     function onPageHide() {
         clearInterval(refreshTimer);
+        clearRefreshTimers();
         window.removeEventListener('message', onParentMessage);
     }
 
